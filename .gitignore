@@ -1,0 +1,6 @@
+node_modules
+.env
+.wwebjs_auth
+database.json
+*.mp3
+*.ogg
