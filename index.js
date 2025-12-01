@@ -64,13 +64,9 @@ function iniciarBot(store) {
 
     const client = new Client({
         authStrategy: new RemoteAuth({ store: store, backupSyncIntervalMs: 300000 }),
-        authTimeoutMs: 0,
+        authTimeoutMs: 0, 
         qrMaxRetries: 10,
-        // Cache de versão para evitar erros de incompatibilidade
-        webVersionCache: {
-            type: 'remote',
-            remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
-        },
+        // REMOVIDO: webVersionCache (Deixar a lib gerenciar a versão automática evita loops)
         puppeteer: {
             executablePath: '/usr/bin/google-chrome-stable',
             args: [
@@ -90,7 +86,7 @@ function iniciarBot(store) {
     client.on('qr', (qr) => {
         console.log('📸 Novo QR Code gerado! (Acesse o site para ver)');
         ultimoQR = qr;
-        try { qrcodeTerminal.generate(qr, { small: true }); } catch (e) { }
+        try { qrcodeTerminal.generate(qr, { small: true }); } catch(e) {}
     });
 
     client.on('ready', () => {
@@ -99,6 +95,13 @@ function iniciarBot(store) {
     });
 
     client.on('authenticated', () => console.log('🔐 Cliente Autenticado'));
+    
+    // Novo evento para debug de desconexão
+    client.on('disconnected', (reason) => {
+        console.log('❌ Cliente desconectado! Razão:', reason);
+        // Reinicializa se cair
+        client.initialize();
+    });
 
     client.on('loading_screen', (percent, message) => {
         console.log(`⏳ Carregando WhatsApp: ${percent}% - ${message}`);
@@ -107,7 +110,7 @@ function iniciarBot(store) {
     // --- PROCESSAMENTO DE MENSAGENS ---
     // Usamos 'message_create' para detectar mensagens enviadas por VOCÊ
     client.on('message_create', async (msg) => {
-
+        
         // LOG DE DEBUG: Ver tudo que passa pelo bot
         console.log(`📨 MSG: ${msg.body.substring(0, 20)}... | De: ${msg.from} | Para: ${msg.to} | Eu?: ${msg.fromMe}`);
 
@@ -139,13 +142,13 @@ function iniciarBot(store) {
             }
 
             // --- INTELIGÊNCIA ARTIFICIAL ---
-
+            
             // 1. Verificar/Criar Usuário
             let usuario = await User.findOne({ phoneNumber: msg.from });
-            if (!usuario) {
+            if (!usuario) { 
                 console.log("🆕 Criando usuário no DB...");
-                usuario = new User({ phoneNumber: msg.from });
-                await usuario.save();
+                usuario = new User({ phoneNumber: msg.from }); 
+                await usuario.save(); 
             }
 
             // 2. Comandos Especiais
@@ -170,14 +173,14 @@ function iniciarBot(store) {
             // 4. GPT-4o (O Professor)
             if (textoDoAluno) {
                 console.log("🧠 Perguntando ao GPT...");
-
+                
                 const systemPrompt = `Você é um professor de inglês. O aluno é nível ${usuario.level}.
                 Responda de forma didática.
                 Regras:
                 1. Correction: Use "❌ Erro -> ✅ Correção".
                 2. Gamification: Se a frase for perfeita, termine com "[XP]".
                 3. Conversa: Termine sempre com uma pergunta.`;
-
+                
                 // Pega histórico recente (últimas 6 mensagens)
                 const history = usuario.history.slice(-6).map(h => ({ role: h.role, content: h.content }));
 
@@ -187,7 +190,7 @@ function iniciarBot(store) {
                 });
 
                 let respostaFinal = gptResponse.choices[0].message.content;
-
+                
                 // Sistema de XP
                 if (respostaFinal.includes('[XP]')) {
                     usuario.xp += 10;
@@ -201,14 +204,14 @@ function iniciarBot(store) {
 
                 console.log(`🤖 Resposta enviada.`);
                 await chat.sendMessage(respostaFinal);
-
+                
                 // 5. TTS (Voz)
-                await enviarAudioDoProfessor(respostaFinal, chat);
+                await enviarAudioDoProfessor(respostaFinal, chat); 
             }
 
         } catch (e) {
             console.error("❌ ERRO NO PROCESSO:", e);
-            try { await msg.reply("❌ Erro interno no bot. Cheque os logs do Render."); } catch (z) { }
+            try { await msg.reply("❌ Erro interno no bot. Cheque os logs do Render."); } catch(z){}
         }
     });
 
@@ -219,14 +222,14 @@ function iniciarBot(store) {
 async function enviarAudioDoProfessor(texto, chat) {
     try {
         // Limpa formatação técnica antes de falar
-        const textoLimpo = texto.replace(/[\*\[\]]/g, '').replace(/❌.*?✅.*?\n/g, '').replace(/Correction:.*?Tip:.*?\n/gs, '');
+        const textoLimpo = texto.replace(/[\*\[\]]/g, '').replace(/❌.*?✅.*?\n/g, '').replace(/Correction:.*?Tip:.*?\n/gs, ''); 
         if (textoLimpo.length < 2) return;
-
+        
         const mp3 = await openai.audio.speech.create({ model: 'tts-1', voice: 'onyx', input: textoLimpo });
         const buffer = Buffer.from(await mp3.arrayBuffer());
         const caminho = path.join(__dirname, 'temp_audio.mp3');
         fs.writeFileSync(caminho, buffer);
         const media = MessageMedia.fromFilePath(caminho);
-        await chat.sendMessage(media);
+        await chat.sendMessage(media); 
     } catch (e) { console.error("Erro Audio:", e); }
 }
