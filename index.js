@@ -49,23 +49,21 @@ function iniciarBot(store) {
     console.log("🚀 Iniciando WhatsApp...");
 
     const client = new Client({
-        authStrategy: new RemoteAuth({ 
-            store: store, 
-            backupSyncIntervalMs: 60000 
+        authStrategy: new RemoteAuth({
+            store: store,
+            backupSyncIntervalMs: 60000
         }),
-        // Aumentamos os limites para evitar desconexão prematura
-        authTimeoutMs: 0, 
+        authTimeoutMs: 0,
         qrMaxRetries: 10,
-        
-        // --- A CORREÇÃO DO LOOP ---
-        // Forçamos uma versão específica para o celular não rejeitar
+
         webVersionCache: {
             type: 'remote',
             remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
         },
-        
+
         puppeteer: {
-            executablePath: '/usr/bin/google-chrome-stable',
+            // MUDANÇA AQUI: Apontamos para o Chromium leve do Linux
+            executablePath: '/usr/bin/chromium',
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
@@ -73,7 +71,6 @@ function iniciarBot(store) {
                 '--disable-accelerated-2d-canvas',
                 '--disable-gpu',
                 '--disable-extensions',
-                // --- FLAGS NOVAS DE ECONOMIA DE MEMÓRIA ---
                 '--disable-software-rasterizer',
                 '--disable-notifications',
                 '--disable-background-networking',
@@ -89,7 +86,7 @@ function iniciarBot(store) {
     client.on('qr', (qr) => {
         console.log('📸 Novo QR Code gerado!');
         ultimoQR = qr;
-        try { qrcodeTerminal.generate(qr, { small: true }); } catch(e) {}
+        try { qrcodeTerminal.generate(qr, { small: true }); } catch (e) { }
     });
 
     client.on('ready', () => {
@@ -98,30 +95,30 @@ function iniciarBot(store) {
     });
 
     client.on('authenticated', () => console.log('🔐 Autenticado'));
-    
+
     // Debug para ver se a sessão salvou
     client.on('remote_session_saved', () => {
         console.log('💾 Sessão salva no MongoDB! (Login persistido)');
     });
 
     client.on('message_create', async (msg) => {
-        if (!msg.fromMe || msg.to !== msg.from) return; 
+        if (!msg.fromMe || msg.to !== msg.from) return;
         if (msg.body.includes('Teacher AI') || msg.body.includes('🌟')) return;
 
         console.log(`📨 Mensagem: ${msg.body}`);
 
         try {
             const chat = await msg.getChat();
-            
+
             if (msg.body === '!ping') {
                 await chat.sendMessage("🏓 Pong!");
                 return;
             }
 
             let usuario = await User.findOne({ phoneNumber: msg.from });
-            if (!usuario) { 
-                usuario = new User({ phoneNumber: msg.from }); 
-                await usuario.save(); 
+            if (!usuario) {
+                usuario = new User({ phoneNumber: msg.from });
+                await usuario.save();
             }
 
             if (msg.body === '!perfil') {
@@ -165,13 +162,13 @@ function iniciarBot(store) {
 
 async function enviarAudioDoProfessor(texto, chat) {
     try {
-        const clean = texto.replace(/[\*\[\]]/g, '').replace(/❌.*?✅.*?\n/g, ''); 
+        const clean = texto.replace(/[\*\[\]]/g, '').replace(/❌.*?✅.*?\n/g, '');
         if (clean.length < 2) return;
         const mp3 = await openai.audio.speech.create({ model: 'tts-1', voice: 'onyx', input: clean });
         const buffer = Buffer.from(await mp3.arrayBuffer());
         const caminho = path.join(__dirname, 'out.mp3');
         fs.writeFileSync(caminho, buffer);
         const media = MessageMedia.fromFilePath(caminho);
-        await chat.sendMessage(media); 
+        await chat.sendMessage(media);
     } catch (e) { console.error("Erro TTS:", e); }
 }
