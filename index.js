@@ -26,66 +26,80 @@ mongoose.connect(process.env.MONGODB_URI)
     .then(() => {
         console.log("Conectado ao MongoDB");
         //Só inicia o bot depois de conectar no banco
-        const store =  new MongoStore({ mongoose: mongoose});
+        const store = new MongoStore({ mongoose: mongoose });
         iniciarBot(store);
     })
     .catch(err => console.error('Erro MONGO', err));
 
-    //Aluno
-    const userSchema = new mongoose.Schema({
-        phoneNumber: { type: String, required: true, unique: true },
-        level: { type: String, default: 'Beginner'},
-        xp: { type: Number, default: 0},
-        history: [{ role: String, content: String }]
-    });
-    const User = mongoose.model('User', userSchema);
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+//Aluno
+const userSchema = new mongoose.Schema({
+    phoneNumber: { type: String, required: true, unique: true },
+    level: { type: String, default: 'Beginner' },
+    xp: { type: Number, default: 0 },
+    history: [{ role: String, content: String }]
+});
+const User = mongoose.model('User', userSchema);
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-    //Funçaõ principal do BOT
-    function iniciarBot(store){
-        console.log("Iniciando WhatsApp...");
+//Funçaõ principal do BOT
+function iniciarBot(store) {
+    console.log("Iniciando WhatsApp...");
 
-        const client = new Client({
-            authStrategy: new RemoteAuth({
-                store: store, //Slava a sessão no MONGOBD
-                backupSyncIntervalMs: 300000 // Slava backup a cada 5 minutos
-            }),
-            puppeteer:{
-                args: ['--no-sandbox', '--disable-setuid-sandbox'],
-                headless: true
-            }
-        });
+    const client = new Client({
+        authStrategy: new RemoteAuth({
+            store: store,
+            backupSyncIntervalMs: 300000
+        }),
+        puppeteer: {
+            // CAMINHO DO CHROME NO DOCKER (LINUX)
+            executablePath: '/usr/bin/google-chrome-stable',
 
-        //função Prompt e Audio
-        function gerarSystemPrompt(nivel){
-            let instrucao = "O aluno é INICIANTE. Use vocabulário simples.";
-            if (nivel === 'Intermediate') instrucao = "O aluno é INTERMEDIARIO. Use vocabulário mais complexo.";
-            if (nivel === 'Advanced') instrucao = "O aluno é AVANÇADO. Seja nativo.";
-
-            return `Você é o Teacher AI. nível: ${nivel}. ${instrucao}.
-             Regras: 1. Use '❌ Erro -> ✅ Correção'. 2. Termine com pergunta. 3. Se perfeotp, use [XP].`;
+            // ARGUMENTOS PARA RODAR EM SERVIDOR FRACO
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage', // <--- ESSA É A CURA DO TRAVAMENTO
+                '--disable-accelerated-2d-canvas',
+                '--no-first-run',
+                '--no-zygote',
+                '--single-process',
+                '--disable-gpu'
+            ],
+            headless: true
         }
+    });
 
-        async function enviarAudioDoProfessor(texto, chat){
-            try{
-                const textoLimpo = texto.replace(/[\*\[\]]/g, '').replace(/❌.*?✅.*?\n/g, '').replace(/Correction:.*?Tip:.*?\n/gs, '');
-                if (_textoLimpo.length < 2) return;
-                const mp3 = await openai.audio.speech.create({
-                    model: 'tts-1',
-                    voice: 'onyx',
-                    input: textoLimpo });
-                
-                const buffer = Buffer.from(await mp3.arrayBuffer());
-                const caminho = path.join(__dirname, 'temp_audio.mp3');
-                fs.writeFileSync(caminho, buffer);
-                const media = MessageMedia.fromFilePath(caminho);
-                await chat.sendMessage(media);
-                }
-                catch (e) { console.error('Erro ao enviar audio', e); }
-            }
-        
+    //função Prompt e Audio
+    function gerarSystemPrompt(nivel) {
+        let instrucao = "O aluno é INICIANTE. Use vocabulário simples.";
+        if (nivel === 'Intermediate') instrucao = "O aluno é INTERMEDIARIO. Use vocabulário mais complexo.";
+        if (nivel === 'Advanced') instrucao = "O aluno é AVANÇADO. Seja nativo.";
+
+        return `Você é o Teacher AI. nível: ${nivel}. ${instrucao}.
+             Regras: 1. Use '❌ Erro -> ✅ Correção'. 2. Termine com pergunta. 3. Se perfeotp, use [XP].`;
+    }
+
+    async function enviarAudioDoProfessor(texto, chat) {
+        try {
+            const textoLimpo = texto.replace(/[\*\[\]]/g, '').replace(/❌.*?✅.*?\n/g, '').replace(/Correction:.*?Tip:.*?\n/gs, '');
+            if (_textoLimpo.length < 2) return;
+            const mp3 = await openai.audio.speech.create({
+                model: 'tts-1',
+                voice: 'onyx',
+                input: textoLimpo
+            });
+
+            const buffer = Buffer.from(await mp3.arrayBuffer());
+            const caminho = path.join(__dirname, 'temp_audio.mp3');
+            fs.writeFileSync(caminho, buffer);
+            const media = MessageMedia.fromFilePath(caminho);
+            await chat.sendMessage(media);
+        }
+        catch (e) { console.error('Erro ao enviar audio', e); }
+    }
+
     // Eventos cliente
-    client.on('qr', (qr) => qrcode.generate(qr, {small: true}));
+    client.on('qr', (qr) => qrcode.generate(qr, { small: true }));
 
     client.on('remote_session_saved', () => {
         console.log('Session salva no MongoDB');
@@ -96,20 +110,20 @@ mongoose.connect(process.env.MONGODB_URI)
     });
 
     client.on('message', async (msg) => {
-        if (!msg.fromMe && !msg.isStatus){
+        if (!msg.fromMe && !msg.isStatus) {
             const chat = await msg.getChat();
             const userId = msg.from;
 
-            try{
+            try {
                 let usuario = await User.findOne({ phoneNumber: userId });
-                if (!usuario){
-                    usuario =  new User({ phoneNumber: userId });
+                if (!usuario) {
+                    usuario = new User({ phoneNumber: userId });
                     await usuario.save();
                 }
 
-                if (msg.body.toLowerCase() === '!perfil'){
+                if (msg.body.toLowerCase() === '!perfil') {
                     await msg.reply(`Profile: ${usuario.level} | XP: ${usuario.xp}`)
-                return;
+                    return;
                 }
 
                 // Lógica de Transcrição
@@ -129,7 +143,7 @@ mongoose.connect(process.env.MONGODB_URI)
                     chat.sendStateTyping();
                     const prompt = gerarSystemPrompt(usuario.level);
                     const history = usuario.history.slice(-6).map(h => ({ role: h.role, content: h.content }));
-                    
+
                     const gptResponse = await openai.chat.completions.create({
                         model: "gpt-4o",
                         messages: [{ role: "system", content: prompt }, ...history, { role: "user", content: textoDoAluno }]
@@ -154,5 +168,5 @@ mongoose.connect(process.env.MONGODB_URI)
 
     client.initialize();
 }
-            
-                 
+
+
