@@ -126,8 +126,12 @@ function iniciarBot(store) {
     }
 
     // Lógica de Mensagens
-    client.on('message', async (msg) => {
-        if (!msg.fromMe && !msg.isStatus) {
+    client.on('message_create', async (msg) => {
+        if (msg.fromMe && msg.to === msg.from) {
+            if( msg.body.includes('Correction:') || msg.body.includes('🗣️') || msg.body.startsWith('🌟')){
+                return;
+            }
+
             const chat = await msg.getChat();
             const userId = msg.from;
 
@@ -139,7 +143,7 @@ function iniciarBot(store) {
                 }
 
                 if (msg.body.toLowerCase() === '!perfil') {
-                    await msg.reply(`Profile: ${usuario.level} | XP: ${usuario.xp}`)
+                    await chat.sendMessage(`Profile: ${usuario.level} | XP: ${usuario.xp}`)
                     return;
                 }
 
@@ -147,7 +151,10 @@ function iniciarBot(store) {
                 
                 // Se for áudio, transcreve
                 if (msg.hasMedia && (msg.type === 'ptt' || msg.type === 'audio')) {
-                    chat.sendStateRecording();
+        
+
+                    console.log("Processando audio no modo esepelho...");
+
                     const media = await msg.downloadMedia();
                     const buffer = Buffer.from(media.data, 'base64');
                     const caminho = './temp_audio.ogg';
@@ -158,7 +165,7 @@ function iniciarBot(store) {
                 }
 
                 if (textoDoAluno) {
-                    chat.sendStateTyping();
+                    //Logica do professor
                     const prompt = gerarSystemPrompt(usuario.level);
                     const history = usuario.history.slice(-6).map(h => ({ role: h.role, content: h.content }));
 
