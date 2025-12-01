@@ -51,19 +51,14 @@ function iniciarBot(store) {
             backupSyncIntervalMs: 300000
         }),
         puppeteer: {
-            // CAMINHO DO CHROME NO DOCKER (LINUX)
             executablePath: '/usr/bin/google-chrome-stable',
-
-            // ARGUMENTOS PARA RODAR EM SERVIDOR FRACO
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage', // <--- ESSA É A CURA DO TRAVAMENTO
+                '--disable-dev-shm-usage', // Continua sendo a vacina principal
                 '--disable-accelerated-2d-canvas',
-                '--no-first-run',
-                '--no-zygote',
-                '--single-process',
-                '--disable-gpu'
+                '--disable-gpu',
+                '--disable-extensions'
             ],
             headless: true
         }
