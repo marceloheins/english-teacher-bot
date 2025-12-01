@@ -15,9 +15,10 @@ WORKDIR /usr/src/app
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
-# 4. LIMITADOR DE MEMÓRIA (CRUCIAL PARA O PLANO FREE)
-# Força o Node.js a usar no máximo 256MB, deixando o restante para o Chromium
-ENV NODE_OPTIONS="--max-old-space-size=256"
+# 4. LIMITADOR DE MEMÓRIA (EXTREMO PARA O PLANO FREE)
+# Baixamos de 256MB para 128MB. O Node.js do bot é leve, o pesado é o Chromium.
+# Isso libera quase 400MB para o navegador respirar sem estourar os 512MB do Render.
+ENV NODE_OPTIONS="--max-old-space-size=128"
 
 # 5. Copiar dependências
 COPY package*.json ./
