@@ -1,15 +1,15 @@
-const { Client, RemoteAuth } = require("whatsapp-web.js"); //importando as classes do whatsapp-web.js
-const { MongoStore } = require("wwebjs-mongo"); //importando a classe do wwebjs-mongo
-const qrcode = require("qrcode"); //importando a classe do qrcode
-const OpenAI = require("openai"); //importando a classe do openai
-const fs = require("fs"); //importando a classe do fs
-const path = require("path"); //importando a classe do path
-const mongoose = require("mongoose"); //importando a classe do mongoose
-const express = require("express"); //importando a classe do express
-const { MessageMedia } = require("whatsapp-web.js"); //importando a classe do message media
+const { Client, RemoteAuth } = require("whatsapp-web.js");
+const { MongoStore } = require("wwebjs-mongo");
+const qrcode = require("qrcode-terminal"); // <--- AQUI ESTAVA O ERRO (Agora está certo)
+const OpenAI = require("openai");
+const fs = require("fs");
+const path = require("path");
+const mongoose = require("mongoose");
+const express = require("express");
+const { MessageMedia } = require("whatsapp-web.js");
 require('dotenv').config();
 
-// configura servidor web
+// Configura servidor web (Keep-Alive)
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -21,17 +21,16 @@ app.listen(PORT, () => {
     console.log(`Servidor rodando na porta ${PORT}`);
 });
 
-// conexao com o MONGO DB
+// Conexao com o MONGO DB
 mongoose.connect(process.env.MONGODB_URI)
     .then(() => {
         console.log("Conectado ao MongoDB");
-        //Só inicia o bot depois de conectar no banco
         const store = new MongoStore({ mongoose: mongoose });
         iniciarBot(store);
     })
     .catch(err => console.error('Erro MONGO', err));
 
-//Aluno
+// Schema do Aluno
 const userSchema = new mongoose.Schema({
     phoneNumber: { type: String, required: true, unique: true },
     level: { type: String, default: 'Beginner' },
@@ -41,7 +40,7 @@ const userSchema = new mongoose.Schema({
 const User = mongoose.model('User', userSchema);
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-//Funçaõ principal do BOT
+// Função principal do BOT
 function iniciarBot(store) {
     console.log("Iniciando WhatsApp...");
 
@@ -50,16 +49,15 @@ function iniciarBot(store) {
             store: store,
             backupSyncIntervalMs: 300000
         }),
-
+        // Configurações de timeout para servidor lento (Render Free)
         authTimeoutMs: 0,
-        qrMaxRestries: 10,
-        
+        qrMaxRetries: 10, // Corrigido erro de digitação (era Restries)
         puppeteer: {
             executablePath: '/usr/bin/google-chrome-stable',
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage', // Continua sendo a vacina principal
+                '--disable-dev-shm-usage',
                 '--disable-accelerated-2d-canvas',
                 '--disable-gpu',
                 '--disable-extensions'
@@ -68,14 +66,18 @@ function iniciarBot(store) {
             timeout: 60000
         }
     });
-    client.on('loading_screen', (percent, message) => {
-        console.log(`Carregando WhatsApp: ${percent}% - ${message}`);
 
+    // --- EVENTOS ---
+
+    // Mostra o progresso do carregamento (Debug)
+    client.on('loading_screen', (percent, message) => {
+        console.log(`⏳ Carregando WhatsApp: ${percent}% - ${message}`);
     });
 
+    // Gera o QR Code visual no terminal
     client.on('qr', (qr) => {
         console.log('📸 QR Code gerado! Escaneie agora:');
-        qrcode.generate(qr, { small: true });
+        qrcode.generate(qr, { small: true }); // Agora vai funcionar porque usamos qrcode-terminal
     });
 
     client.on('authenticated', () => {
@@ -92,20 +94,22 @@ function iniciarBot(store) {
 
     client.on('ready', () => console.log('✅ Teacher Bot 100% ONLINE!'));
 
-    //função Prompt e Audio
+    // Função de Prompt
     function gerarSystemPrompt(nivel) {
         let instrucao = "O aluno é INICIANTE. Use vocabulário simples.";
         if (nivel === 'Intermediate') instrucao = "O aluno é INTERMEDIARIO. Use vocabulário mais complexo.";
         if (nivel === 'Advanced') instrucao = "O aluno é AVANÇADO. Seja nativo.";
 
         return `Você é o Teacher AI. nível: ${nivel}. ${instrucao}.
-             Regras: 1. Use '❌ Erro -> ✅ Correção'. 2. Termine com pergunta. 3. Se perfeotp, use [XP].`;
+             Regras: 1. Use '❌ Erro -> ✅ Correção'. 2. Termine com pergunta. 3. Se perfeito, use [XP].`;
     }
 
+    // Função de Áudio TTS
     async function enviarAudioDoProfessor(texto, chat) {
         try {
             const textoLimpo = texto.replace(/[\*\[\]]/g, '').replace(/❌.*?✅.*?\n/g, '').replace(/Correction:.*?Tip:.*?\n/gs, '');
-            if (_textoLimpo.length < 2) return;
+            if (textoLimpo.length < 2) return; // Corrigido erro de digitação (era _textoLimpo)
+            
             const mp3 = await openai.audio.speech.create({
                 model: 'tts-1',
                 voice: 'onyx',
@@ -121,17 +125,7 @@ function iniciarBot(store) {
         catch (e) { console.error('Erro ao enviar audio', e); }
     }
 
-    // Eventos cliente
-    client.on('qr', (qr) => qrcode.generate(qr, { small: true }));
-
-    client.on('remote_session_saved', () => {
-        console.log('Session salva no MongoDB');
-    });
-
-    client.on('ready', () => {
-        console.log('Bot iniciado e pronto para receber mensagens');
-    });
-
+    // Lógica de Mensagens
     client.on('message', async (msg) => {
         if (!msg.fromMe && !msg.isStatus) {
             const chat = await msg.getChat();
@@ -149,8 +143,9 @@ function iniciarBot(store) {
                     return;
                 }
 
-                // Lógica de Transcrição
                 let textoDoAluno = msg.body;
+                
+                // Se for áudio, transcreve
                 if (msg.hasMedia && (msg.type === 'ptt' || msg.type === 'audio')) {
                     chat.sendStateRecording();
                     const media = await msg.downloadMedia();
@@ -191,5 +186,4 @@ function iniciarBot(store) {
 
     client.initialize().catch(err => console.error('Erro ao iniciar o bot:', err));
 }
-
 
