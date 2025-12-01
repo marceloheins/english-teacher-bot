@@ -15,17 +15,21 @@ WORKDIR /usr/src/app
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
-# 4. Copiar dependências
+# 4. LIMITADOR DE MEMÓRIA (CRUCIAL PARA O PLANO FREE)
+# Força o Node.js a usar no máximo 256MB, deixando o restante para o Chromium
+ENV NODE_OPTIONS="--max-old-space-size=256"
+
+# 5. Copiar dependências
 COPY package*.json ./
 
-# 5. Instalar pacotes do Node
+# 6. Instalar pacotes do Node
 RUN npm install --production
 
-# 6. Copiar o código fonte
+# 7. Copiar o código fonte
 COPY . .
 
-# 7. Expor a porta do servidor web
+# 8. Expor a porta do servidor web
 EXPOSE 3000
 
-# 8. Iniciar
+# 9. Iniciar
 CMD [ "node", "index.js" ]
