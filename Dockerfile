@@ -1,4 +1,4 @@
-FROM node:18-slim
+FROM node:22-slim
 
 # 1. Instalar Chrome e dependências do sistema
 RUN apt-get update \
@@ -14,7 +14,7 @@ RUN apt-get update \
 WORKDIR /usr/src/app
 
 # 3. Copiar dependências
-COPY package*.json ./
+COPY package*.json .
 
 # 4. Instalar pacotes do Node
 RUN npm install --production
