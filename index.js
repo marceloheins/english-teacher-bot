@@ -50,6 +50,10 @@ function iniciarBot(store) {
             store: store,
             backupSyncIntervalMs: 300000
         }),
+
+        authTimeoutMs: 0,
+        qrMaxRestries: 10,
+        
         puppeteer: {
             executablePath: '/usr/bin/google-chrome-stable',
             args: [
@@ -60,9 +64,33 @@ function iniciarBot(store) {
                 '--disable-gpu',
                 '--disable-extensions'
             ],
-            headless: true
+            headless: true,
+            timeout: 60000
         }
     });
+    client.on('loading_screen', (percent, message) => {
+        console.log(`Carregando WhatsApp: ${percent}% - ${message}`);
+
+    });
+
+    client.on('qr', (qr) => {
+        console.log('📸 QR Code gerado! Escaneie agora:');
+        qrcode.generate(qr, { small: true });
+    });
+
+    client.on('authenticated', () => {
+        console.log('🔐 Autenticado com sucesso!');
+    });
+
+    client.on('auth_failure', (msg) => {
+        console.error('❌ Falha na autenticação:', msg);
+    });
+    
+    client.on('remote_session_saved', () => {
+        console.log('💾 Sessão salva no Banco de Dados!');
+    });
+
+    client.on('ready', () => console.log('✅ Teacher Bot 100% ONLINE!'));
 
     //função Prompt e Audio
     function gerarSystemPrompt(nivel) {
@@ -161,7 +189,7 @@ function iniciarBot(store) {
         }
     });
 
-    client.initialize();
+    client.initialize().catch(err => console.error('Erro ao iniciar o bot:', err));
 }
 
 
