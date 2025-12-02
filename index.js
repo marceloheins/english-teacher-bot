@@ -1,4 +1,4 @@
-const { default: makeWASocket, DisconnectReason, fetchLatestBaileysVersion, makeInMemoryStore, downloadMediaMessage, BufferJSON, useMultiFileAuthState } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, DisconnectReason, makeInMemoryStore, downloadMediaMessage, BufferJSON, useMultiFileAuthState } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const { Boom } = require('@hapi/boom');
 const OpenAI = require("openai");
@@ -129,14 +129,18 @@ async function startBot() {
     statusMsg = "Iniciando sistema...";
 
     const { state, saveCreds, clearAll } = await useMongoDBAuthState(AuthStore);
-    const { version } = await fetchLatestBaileysVersion();
+    
+    // REMOVIDO: fetchLatestBaileysVersion (Causa instabilidade)
+    // FIXADO: Versão manual "hardcoded" para estabilidade
+    const version = [2, 3000, 1015901307];
 
     const sock = makeWASocket({
         version,
         logger: pino({ level: 'silent' }),
         printQRInTerminal: false, // Não poluir log
         auth: state,
-        browser: ["TeacherBot", "Chrome", "1.0"],
+        // Alterado para Ubuntu/Chrome para evitar rejeição
+        browser: ["Ubuntu", "Chrome", "20.0.04"],
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 0,
         keepAliveIntervalMs: 10000,
