@@ -8,6 +8,10 @@ const mongoose = require("mongoose");
 const express = require("express");
 require('dotenv').config();
 
+// --- PREVENÇÃO DE CRASH (EVITA QUE O APP FECHE SOZINHO) ---
+process.on('uncaughtException', (err) => console.error('⚠️ Exceção não tratada:', err));
+process.on('unhandledRejection', (err) => console.error('⚠️ Rejeição não tratada:', err));
+
 // --- 1. SERVIDOR WEB (Visualização do QR Code) ---
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -16,7 +20,6 @@ let isConnected = false;
 let statusMsg = "Iniciando...";
 
 app.get('/', (req, res) => {
-    // Cabeçalho para atualizar a página a cada 5 segundos
     const htmlHead = '<head><meta http-equiv="refresh" content="5"><meta name="viewport" content="width=device-width, initial-scale=1"></head>';
     const style = 'body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background: #f0f2f5; text-align: center; } .card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }';
 
@@ -126,152 +129,168 @@ async function startBot() {
     console.log("🚀 Iniciando Bot...");
     statusMsg = "Iniciando sistema...";
 
-    const { state, saveCreds, clearAll } = await useMongoDBAuthState(AuthStore);
-    
-    // VOLTAMOS PARA A VERSÃO REAL (Automática)
-    // A versão manual estava sendo rejeitada
-    const { version } = await fetchLatestBaileysVersion();
-    console.log(`📡 Usando versão do Baileys: ${version.join('.')}`);
-
-    const sock = makeWASocket({
-        version,
-        logger: pino({ level: 'silent' }),
-        printQRInTerminal: false, 
-        auth: state,
-        // Navegador padrão
-        browser: ["TeacherBot", "Chrome", "1.0"],
-        connectTimeoutMs: 60000,
-        defaultQueryTimeoutMs: 0,
-        keepAliveIntervalMs: 10000,
-        emitOwnEvents: true,
-        retryRequestDelayMs: 2000,
-        markOnlineOnConnect: false
-    });
-
-    sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect, qr } = update;
-
-        if (qr) {
-            console.log("📸 Novo QR Code Gerado!");
-            ultimoQR = qr;
-            statusMsg = "Aguardando leitura do QR Code...";
-        }
-
-        if (connection === 'close') {
-            const error = lastDisconnect?.error;
-            const statusCode = (error instanceof Boom)?.output?.statusCode;
-            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-            const errorMsg = error?.message || "Erro desconhecido";
-
-            console.log(`❌ Conexão Fechada. Code: ${statusCode}, Msg: ${errorMsg}`);
-            statusMsg = `Desconectado (${errorMsg}). Tentando reconectar...`;
-
-            // DETECTA ERROS FATAIS E LIMPA O BANCO
-            // Adicionado 'Connection Failure' que estava dando loop
-            if (errorMsg.includes('Connection Failure') || errorMsg.includes('Stream Errored') || errorMsg.includes('Bad MAC') || statusCode === 401) {
-                console.log("⚠️ ERRO CRÍTICO (FALHA DE CONEXÃO). LIMPANDO DADOS...");
-                await clearAll(); 
-                console.log("✅ Banco limpo. Reiniciando...");
-                process.exit(0); 
-            }
-
-            isConnected = false;
-            if (shouldReconnect) {
-                setTimeout(startBot, 2000);
-            }
-        } else if (connection === 'open') {
-            console.log('✅✅✅ CONECTADO COM SUCESSO! ✅✅✅');
-            isConnected = true;
-            ultimoQR = "";
-            statusMsg = "Online";
-        }
-    });
-
-    sock.ev.on('creds.update', saveCreds);
-
-    // --- PROCESSAMENTO DE MENSAGENS ---
-    sock.ev.on('messages.upsert', async ({ messages, type }) => {
-        if (type !== 'notify') return;
-        const msg = messages[0];
-        if (!msg.message) return;
-
-        const from = msg.key.remoteJid;
-        const isFromMe = msg.key.fromMe;
+    try {
+        const { state, saveCreds, clearAll } = await useMongoDBAuthState(AuthStore);
         
-        const textBody = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
-
-        if (msg.key.remoteJid.includes('@g.us')) return; 
-        if (isFromMe && (textBody.includes('Teacher') || textBody.startsWith('🌟'))) return;
-
+        // Tenta obter versão, usa fallback se falhar (evita crash)
+        let version;
         try {
-            if (textBody === '!ping') {
-                console.log("🏓 Ping recebido!");
-                await sock.sendMessage(from, { text: '🏓 Pong! Estou vivo.' });
-                return;
-            }
-
-            let usuario = await User.findOne({ phoneNumber: from });
-            if (!usuario) {
-                usuario = new User({ phoneNumber: from });
-                await usuario.save();
-            }
-
-            if (textBody === '!perfil') {
-                await sock.sendMessage(from, { text: `📊 Nível: ${usuario.level} | XP: ${usuario.xp}` });
-                return;
-            }
-
-            let inputUsuario = textBody;
-            const isAudio = msg.message.audioMessage;
-            
-            if (isAudio) {
-                const stream = await downloadMediaMessage(msg, 'buffer', {}, { logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage });
-                const caminho = path.join(__dirname, 'temp.ogg');
-                fs.writeFileSync(caminho, stream);
-                const trans = await openai.audio.transcriptions.create({ file: fs.createReadStream(caminho), model: "whisper-1" });
-                inputUsuario = trans.text;
-                await sock.sendMessage(from, { text: `👂 Ouvi: "${inputUsuario}"` });
-            }
-
-            if (inputUsuario) {
-                const systemPrompt = `Você é um professor de inglês. O aluno é Nível ${usuario.level}.
-                Seja didático e paciente.
-                Regras:
-                1. Se o aluno errar: Use "❌ Erro -> ✅ Correção".
-                2. Se acertar perfeitamente: Adicione tag [XP] no final.
-                3. Termine sempre incentivando a conversa.`;
-
-                const history = usuario.history.slice(-6).map(h => ({ role: h.role, content: h.content }));
-                
-                const gpt = await openai.chat.completions.create({
-                    model: "gpt-4o",
-                    messages: [{ role: "system", content: systemPrompt }, ...history, { role: "user", content: inputUsuario }]
-                });
-
-                let resp = gpt.choices[0].message.content;
-                
-                if (resp.includes('[XP]')) {
-                    usuario.xp += 10;
-                    resp = resp.replace('[XP]', '🌟 (+10 XP)');
-                } else { usuario.xp += 1; }
-
-                usuario.history.push({ role: "user", content: inputUsuario });
-                usuario.history.push({ role: "assistant", content: resp });
-                await usuario.save();
-
-                await sock.sendMessage(from, { text: resp });
-
-                const clean = resp.replace(/[\*\[\]]/g, '').replace(/❌.*?✅.*?\n/g, ''); 
-                if (clean.length > 2) {
-                    const mp3 = await openai.audio.speech.create({ model: 'tts-1', voice: 'alloy', input: clean });
-                    const buffer = Buffer.from(await mp3.arrayBuffer());
-                    await sock.sendMessage(from, { audio: buffer, mimetype: 'audio/mp4', ptt: true });
-                }
-            }
+            const v = await fetchLatestBaileysVersion();
+            version = v.version;
+            console.log(`📡 Versão obtida: ${version.join('.')}`);
         } catch (e) {
-            console.error("Erro geral:", e);
+            console.log("⚠️ Falha ao obter versão, usando padrão seguro.");
+            version = [2, 3000, 1015901307];
         }
-    });
+
+        const sock = makeWASocket({
+            version,
+            logger: pino({ level: 'silent' }),
+            printQRInTerminal: false, 
+            auth: state,
+            browser: ["TeacherBot", "Chrome", "1.0"],
+            connectTimeoutMs: 60000,
+            defaultQueryTimeoutMs: 0,
+            keepAliveIntervalMs: 10000,
+            emitOwnEvents: true,
+            retryRequestDelayMs: 2000,
+            markOnlineOnConnect: false
+        });
+
+        sock.ev.on('connection.update', async (update) => {
+            const { connection, lastDisconnect, qr } = update;
+
+            if (qr) {
+                console.log("📸 Novo QR Code Gerado!");
+                ultimoQR = qr;
+                statusMsg = "Aguardando leitura do QR Code...";
+            }
+
+            if (connection === 'close') {
+                const error = lastDisconnect?.error;
+                const statusCode = (error instanceof Boom)?.output?.statusCode;
+                const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+                const errorMsg = error?.message || "Erro desconhecido";
+
+                console.log(`❌ Conexão Fechada. Code: ${statusCode}, Msg: ${errorMsg}`);
+                statusMsg = `Desconectado (${errorMsg}). Tentando reconectar...`;
+
+                // DETECTA ERROS FATAIS E LIMPA O BANCO
+                // Em vez de process.exit, limpamos e reiniciamos a função
+                if (errorMsg.includes('Connection Failure') || errorMsg.includes('Stream Errored') || errorMsg.includes('Bad MAC') || statusCode === 401) {
+                    console.log("⚠️ ERRO CRÍTICO DETECTADO. LIMPANDO DADOS E REINICIANDO INTERNAMENTE...");
+                    await clearAll(); 
+                    statusMsg = "Reiniciando sessão limpa...";
+                    ultimoQR = ""; // Limpa QR antigo
+                    
+                    // Reinicia a função do bot após 3 segundos (sem matar o servidor)
+                    setTimeout(startBot, 3000);
+                    return; 
+                }
+
+                isConnected = false;
+                if (shouldReconnect) {
+                    setTimeout(startBot, 2000);
+                }
+            } else if (connection === 'open') {
+                console.log('✅✅✅ CONECTADO COM SUCESSO! ✅✅✅');
+                isConnected = true;
+                ultimoQR = "";
+                statusMsg = "Online";
+            }
+        });
+
+        sock.ev.on('creds.update', saveCreds);
+
+        // --- PROCESSAMENTO DE MENSAGENS ---
+        sock.ev.on('messages.upsert', async ({ messages, type }) => {
+            if (type !== 'notify') return;
+            const msg = messages[0];
+            if (!msg.message) return;
+
+            const from = msg.key.remoteJid;
+            const isFromMe = msg.key.fromMe;
+            
+            const textBody = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
+
+            if (msg.key.remoteJid.includes('@g.us')) return; 
+            if (isFromMe && (textBody.includes('Teacher') || textBody.startsWith('🌟'))) return;
+
+            try {
+                if (textBody === '!ping') {
+                    console.log("🏓 Ping recebido!");
+                    await sock.sendMessage(from, { text: '🏓 Pong! Estou vivo.' });
+                    return;
+                }
+
+                let usuario = await User.findOne({ phoneNumber: from });
+                if (!usuario) {
+                    usuario = new User({ phoneNumber: from });
+                    await usuario.save();
+                }
+
+                if (textBody === '!perfil') {
+                    await sock.sendMessage(from, { text: `📊 Nível: ${usuario.level} | XP: ${usuario.xp}` });
+                    return;
+                }
+
+                let inputUsuario = textBody;
+                const isAudio = msg.message.audioMessage;
+                
+                if (isAudio) {
+                    const stream = await downloadMediaMessage(msg, 'buffer', {}, { logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage });
+                    const caminho = path.join(__dirname, 'temp.ogg');
+                    fs.writeFileSync(caminho, stream);
+                    const trans = await openai.audio.transcriptions.create({ file: fs.createReadStream(caminho), model: "whisper-1" });
+                    inputUsuario = trans.text;
+                    await sock.sendMessage(from, { text: `👂 Ouvi: "${inputUsuario}"` });
+                }
+
+                if (inputUsuario) {
+                    const systemPrompt = `Você é um professor de inglês. O aluno é Nível ${usuario.level}.
+                    Seja didático e paciente.
+                    Regras:
+                    1. Se o aluno errar: Use "❌ Erro -> ✅ Correção".
+                    2. Se acertar perfeitamente: Adicione tag [XP] no final.
+                    3. Termine sempre incentivando a conversa.`;
+
+                    const history = usuario.history.slice(-6).map(h => ({ role: h.role, content: h.content }));
+                    
+                    const gpt = await openai.chat.completions.create({
+                        model: "gpt-4o",
+                        messages: [{ role: "system", content: systemPrompt }, ...history, { role: "user", content: inputUsuario }]
+                    });
+
+                    let resp = gpt.choices[0].message.content;
+                    
+                    if (resp.includes('[XP]')) {
+                        usuario.xp += 10;
+                        resp = resp.replace('[XP]', '🌟 (+10 XP)');
+                    } else { usuario.xp += 1; }
+
+                    usuario.history.push({ role: "user", content: inputUsuario });
+                    usuario.history.push({ role: "assistant", content: resp });
+                    await usuario.save();
+
+                    await sock.sendMessage(from, { text: resp });
+
+                    const clean = resp.replace(/[\*\[\]]/g, '').replace(/❌.*?✅.*?\n/g, ''); 
+                    if (clean.length > 2) {
+                        const mp3 = await openai.audio.speech.create({ model: 'tts-1', voice: 'alloy', input: clean });
+                        const buffer = Buffer.from(await mp3.arrayBuffer());
+                        await sock.sendMessage(from, { audio: buffer, mimetype: 'audio/mp4', ptt: true });
+                    }
+                }
+            } catch (e) {
+                console.error("Erro geral:", e);
+            }
+        });
+    } catch (err) {
+        console.error("Erro fatal ao iniciar bot:", err);
+        // Tenta reiniciar após 10s em caso de falha grave na inicialização
+        setTimeout(startBot, 10000);
+    }
 }
 
-startBot();
+// Inicia com tratamento de erro global
+startBot().catch(err => console.error("Erro não tratado no startBot:", err));
