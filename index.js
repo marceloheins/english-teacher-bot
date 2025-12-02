@@ -97,7 +97,7 @@ const useMongoDBAuthState = async (collection) => {
 // --- 4. INICIAR BOT ---
 async function startBot() {
     console.log("🚀 Iniciando Baileys...");
-    
+
     // Carrega a autenticação do Mongo
     const { state, saveCreds } = await useMongoDBAuthState(Session);
     const { version } = await fetchLatestBaileysVersion();
@@ -108,13 +108,13 @@ async function startBot() {
         printQRInTerminal: true, // Mostra no log também
         auth: state,
         browser: ["Teacher Bot", "Chrome", "1.0.0"], // Identificação
-        connectTimeoutMs: 60000,
+        connectTimeoutMs: 180000,
     });
 
     // Gerenciamento de Eventos de Conexão
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
-        
+
         if (qr) {
             console.log("📸 Novo QR Code gerado!");
             ultimoQR = qr;
@@ -144,7 +144,7 @@ async function startBot() {
         const from = msg.key.remoteJid;
         const isFromMe = msg.key.fromMe;
         const pushName = msg.pushName || "Student";
-        
+
         // Pega o texto da mensagem (pode vir de conversation ou extendedTextMessage)
         const textBody = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
 
@@ -159,7 +159,7 @@ async function startBot() {
         // Para o modo espelho funcionar no Baileys, é um pouco chato. 
         // SUGESTÃO: Vamos permitir que você fale com o bot enviando mensagem PARA ELE.
         // Se a mensagem veio de MIM (eu mandei do celular) e é no chat "Anotei" (meu numero), ok.
-        
+
         // Simplificação: Responde a qualquer um (mas só você tem o número do bot se for novo) 
         // OU: Verifica se é o SEU número.
         // Vamos permitir responder a qualquer mensagem direta (DM) por enquanto para testar.
@@ -167,7 +167,7 @@ async function startBot() {
 
         // Evita loop do próprio bot
         if (isFromMe && (textBody.includes('Teacher AI') || textBody.startsWith('🌟'))) return;
-        
+
         try {
             // Comandos
             if (textBody === '!ping') {
@@ -198,16 +198,16 @@ async function startBot() {
                 const stream = await downloadMediaMessage(
                     msg,
                     'buffer',
-                    { },
-                    { 
+                    {},
+                    {
                         logger: pino({ level: 'silent' }),
                         reuploadRequest: sock.updateMediaMessage
                     }
                 );
-                
+
                 const caminho = path.join(__dirname, 'temp_audio.ogg');
                 fs.writeFileSync(caminho, stream);
-                
+
                 const trans = await openai.audio.transcriptions.create({ file: fs.createReadStream(caminho), model: "whisper-1" });
                 inputUsuario = trans.text;
                 await sock.sendMessage(from, { text: `👂 Heard: "${inputUsuario}"` });
@@ -240,7 +240,7 @@ async function startBot() {
                 await sock.sendMessage(from, { text: resp });
 
                 // Áudio de Resposta
-                const clean = resp.replace(/[\*\[\]]/g, '').replace(/❌.*?✅.*?\n/g, ''); 
+                const clean = resp.replace(/[\*\[\]]/g, '').replace(/❌.*?✅.*?\n/g, '');
                 if (clean.length > 2) {
                     const mp3 = await openai.audio.speech.create({ model: 'tts-1', voice: 'onyx', input: clean });
                     const buffer = Buffer.from(await mp3.arrayBuffer());
