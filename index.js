@@ -33,7 +33,7 @@ app.get('/', (req, res) => {
                         <h1>Escaneie Agora:</h1>
                         <img src="${url}" style="border:5px solid #333; border-radius:10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);" />
                         <p style="font-weight: bold; color: red;">A página atualiza a cada 5s.</p>
-                        <p>Funciona com WhatsApp Pessoal e Business.</p>
+                        <p>Limite de conexão aumentado para 3 minutos.</p>
                     </div>
                 </body>
             </html>
@@ -154,8 +154,10 @@ async function startBot() {
         logger: pino({ level: 'silent' }),
         printQRInTerminal: false,
         auth: state,
-        browser: ["Teacher Bot", "Chrome", "1.0.0"], 
-        connectTimeoutMs: 60000,
+        // Usar "Ubuntu" às vezes ajuda na compatibilidade e evita timeouts em conexões lentas
+        browser: ["Teacher Bot", "Ubuntu", "3.0.0"], 
+        // AUMENTADO PARA 3 MINUTOS (180s) para dar tempo de processar
+        connectTimeoutMs: 180000, 
         defaultQueryTimeoutMs: 0, 
         keepAliveIntervalMs: 10000, 
         retryRequestDelayMs: 5000,
