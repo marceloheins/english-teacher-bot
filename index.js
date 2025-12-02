@@ -16,19 +16,42 @@ let isConnected = false;
 
 app.get('/', (req, res) => {
     if (isConnected) {
-        res.send('<div style="display:flex; justify-content:center; align-items:center; height:100vh; background-color:#dcf8c6; font-family:sans-serif; flex-direction:column;"><h1 style="color:green;">✅ Teacher Bot (Baileys) ONLINE!</h1><p>Vá para o WhatsApp e mande <b>!ping</b></p></div>');
+        res.send(`
+            <div style="display:flex; justify-content:center; align-items:center; height:100vh; background-color:#dcf8c6; font-family:sans-serif; flex-direction:column;">
+                <h1 style="color:green;">✅ Teacher Bot (Baileys) ONLINE!</h1>
+                <p>Status: Conectado e Pronto.</p>
+                <p>Vá para o WhatsApp e mande <b>!ping</b></p>
+            </div>
+        `);
     } else if (ultimoQR) {
         const url = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(ultimoQR)}`;
         res.send(`
-            <div style="display:flex; justify-content:center; align-items:center; height:100vh; background-color:#f0f0f0; font-family:sans-serif; flex-direction:column;">
-                <h1>Escaneie Agora:</h1>
-                <img src="${url}" style="border:5px solid #333; border-radius:10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);" />
-                <p>Mantenha esta página aberta enquanto escaneia.</p>
-                <p>Se a imagem expirar, dê F5.</p>
-            </div>
+            <html>
+                <head>
+                    <!-- ATUALIZA A PÁGINA A CADA 5 SEGUNDOS PARA O QR CODE NÃO EXPIRAR -->
+                    <meta http-equiv="refresh" content="5">
+                </head>
+                <body>
+                    <div style="display:flex; justify-content:center; align-items:center; height:100vh; background-color:#f0f0f0; font-family:sans-serif; flex-direction:column;">
+                        <h1>Escaneie Agora:</h1>
+                        <img src="${url}" style="border:5px solid #333; border-radius:10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);" />
+                        <p style="font-weight: bold; color: red;">A página atualiza sozinha a cada 5s para garantir que o código é válido.</p>
+                        <p>Funciona com WhatsApp Pessoal e Business.</p>
+                    </div>
+                </body>
+            </html>
         `);
     } else {
-        res.send('<div style="display:flex; justify-content:center; align-items:center; height:100vh; font-family:sans-serif;"><h1>⏳ Iniciando... aguarde o QR Code.</h1></div>');
+        res.send(`
+            <html>
+                <head><meta http-equiv="refresh" content="5"></head>
+                <body>
+                    <div style="display:flex; justify-content:center; align-items:center; height:100vh; font-family:sans-serif;">
+                        <h1>⏳ Iniciando... aguarde o QR Code.</h1>
+                    </div>
+                </body>
+            </html>
+        `);
     }
 });
 app.listen(PORT, () => console.log(`🌐 Web rodando na porta ${PORT}`));
@@ -68,7 +91,6 @@ const useMongoDBAuthState = async (collection) => {
     let creds = await readData('creds');
     if (!creds) {
         creds = (await require('@whiskeysockets/baileys').initAuthCreds());
-        // AQUI ESTÁ O TRUQUE: Salva imediatamente para fixar a identidade
         await writeData(creds, 'creds');
     }
 
@@ -118,9 +140,10 @@ async function startBot() {
         auth: state,
         // Mudamos para navegador padrão para evitar suspeitas do WhatsApp
         browser: ["Teacher Bot", "Chrome", "1.0.0"], 
-        connectTimeoutMs: 180000, 
+        connectTimeoutMs: 300000, // AUMENTADO PARA 5 MINUTOS
         defaultQueryTimeoutMs: 0, 
         keepAliveIntervalMs: 10000, 
+        retryRequestDelayMs: 5000, // Tenta novamente se falhar
         syncFullHistory: false 
     });
 
