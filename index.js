@@ -1,4 +1,4 @@
-const { default: makeWASocket, DisconnectReason, makeInMemoryStore, downloadMediaMessage, BufferJSON, useMultiFileAuthState } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, DisconnectReason, fetchLatestBaileysVersion, makeInMemoryStore, downloadMediaMessage, BufferJSON, useMultiFileAuthState } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const { Boom } = require('@hapi/boom');
 const OpenAI = require("openai");
@@ -46,17 +46,15 @@ const userSchema = new mongoose.Schema({
 const User = mongoose.model('User', userSchema);
 
 // Schema da Sessão do WhatsApp (Auth)
-// Usamos uma coleção separada para garantir integridade
 const authSchema = new mongoose.Schema({ _id: String, data: Object }, { strict: false });
 const AuthStore = mongoose.model('AuthStore', authSchema);
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// --- 3. GESTÃO DE SESSÃO NO MONGO (COM FIX DE BUFFER) ---
+// --- 3. GESTÃO DE SESSÃO NO MONGO ---
 const useMongoDBAuthState = async (collection) => {
     const writeData = (data, file) => {
         try {
-            // BufferJSON é vital para não corromper as chaves de criptografia do Baileys
             return collection.updateOne(
                 { _id: file }, 
                 { $set: { data: JSON.parse(JSON.stringify(data, BufferJSON.replacer)) } }, 
@@ -119,7 +117,7 @@ const useMongoDBAuthState = async (collection) => {
             }
         },
         saveCreds: () => writeData(creds, 'creds'),
-        clearAll // Exportamos essa função para usar no erro fatal
+        clearAll 
     };
 };
 
@@ -130,17 +128,18 @@ async function startBot() {
 
     const { state, saveCreds, clearAll } = await useMongoDBAuthState(AuthStore);
     
-    // REMOVIDO: fetchLatestBaileysVersion (Causa instabilidade)
-    // FIXADO: Versão manual "hardcoded" para estabilidade
-    const version = [2, 3000, 1015901307];
+    // VOLTAMOS PARA A VERSÃO REAL (Automática)
+    // A versão manual estava sendo rejeitada
+    const { version } = await fetchLatestBaileysVersion();
+    console.log(`📡 Usando versão do Baileys: ${version.join('.')}`);
 
     const sock = makeWASocket({
         version,
         logger: pino({ level: 'silent' }),
-        printQRInTerminal: false, // Não poluir log
+        printQRInTerminal: false, 
         auth: state,
-        // Alterado para Ubuntu/Chrome para evitar rejeição
-        browser: ["Ubuntu", "Chrome", "20.0.04"],
+        // Navegador padrão
+        browser: ["TeacherBot", "Chrome", "1.0"],
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 0,
         keepAliveIntervalMs: 10000,
@@ -162,19 +161,18 @@ async function startBot() {
             const error = lastDisconnect?.error;
             const statusCode = (error instanceof Boom)?.output?.statusCode;
             const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-            const errorMsg = error?.message || "";
+            const errorMsg = error?.message || "Erro desconhecido";
 
             console.log(`❌ Conexão Fechada. Code: ${statusCode}, Msg: ${errorMsg}`);
             statusMsg = `Desconectado (${errorMsg}). Tentando reconectar...`;
 
-            // --- AUTO-CORREÇÃO DE ERRO FATAL ---
-            // Se der erro de Stream, Bad MAC ou 401, significa que a sessão no banco estragou.
-            // A solução é limpar tudo e reiniciar do zero.
-            if (errorMsg.includes('Stream Errored') || errorMsg.includes('Bad MAC') || statusCode === 401) {
-                console.log("⚠️ ERRO CRÍTICO DETECTADO! INICIANDO PROTOCOLO DE LIMPEZA...");
-                await clearAll(); // Apaga a sessão do Mongo
-                console.log("✅ Banco limpo. Reiniciando processo para gerar novo QR Code...");
-                process.exit(0); // Mata o processo (o Render reinicia automaticamente limpo)
+            // DETECTA ERROS FATAIS E LIMPA O BANCO
+            // Adicionado 'Connection Failure' que estava dando loop
+            if (errorMsg.includes('Connection Failure') || errorMsg.includes('Stream Errored') || errorMsg.includes('Bad MAC') || statusCode === 401) {
+                console.log("⚠️ ERRO CRÍTICO (FALHA DE CONEXÃO). LIMPANDO DADOS...");
+                await clearAll(); 
+                console.log("✅ Banco limpo. Reiniciando...");
+                process.exit(0); 
             }
 
             isConnected = false;
@@ -200,33 +198,24 @@ async function startBot() {
         const from = msg.key.remoteJid;
         const isFromMe = msg.key.fromMe;
         
-        // Extrai texto de várias fontes possíveis
         const textBody = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
 
-        // Ignora grupos
         if (msg.key.remoteJid.includes('@g.us')) return; 
-        
-        // Ignora mensagens do próprio bot (evita loop)
         if (isFromMe && (textBody.includes('Teacher') || textBody.startsWith('🌟'))) return;
 
         try {
-            // Comando de teste simples
             if (textBody === '!ping') {
                 console.log("🏓 Ping recebido!");
                 await sock.sendMessage(from, { text: '🏓 Pong! Estou vivo.' });
                 return;
             }
 
-            // --- LÓGICA DO PROFESSOR (GPT + BANCO) ---
-            
-            // 1. Busca/Cria Aluno
             let usuario = await User.findOne({ phoneNumber: from });
             if (!usuario) {
                 usuario = new User({ phoneNumber: from });
                 await usuario.save();
             }
 
-            // 2. Perfil
             if (textBody === '!perfil') {
                 await sock.sendMessage(from, { text: `📊 Nível: ${usuario.level} | XP: ${usuario.xp}` });
                 return;
@@ -235,7 +224,6 @@ async function startBot() {
             let inputUsuario = textBody;
             const isAudio = msg.message.audioMessage;
             
-            // 3. Áudio (Whisper)
             if (isAudio) {
                 const stream = await downloadMediaMessage(msg, 'buffer', {}, { logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage });
                 const caminho = path.join(__dirname, 'temp.ogg');
@@ -245,7 +233,6 @@ async function startBot() {
                 await sock.sendMessage(from, { text: `👂 Ouvi: "${inputUsuario}"` });
             }
 
-            // 4. Inteligência (GPT-4o)
             if (inputUsuario) {
                 const systemPrompt = `Você é um professor de inglês. O aluno é Nível ${usuario.level}.
                 Seja didático e paciente.
@@ -263,22 +250,17 @@ async function startBot() {
 
                 let resp = gpt.choices[0].message.content;
                 
-                // Lógica de XP
                 if (resp.includes('[XP]')) {
                     usuario.xp += 10;
                     resp = resp.replace('[XP]', '🌟 (+10 XP)');
                 } else { usuario.xp += 1; }
 
-                // Salva histórico
                 usuario.history.push({ role: "user", content: inputUsuario });
                 usuario.history.push({ role: "assistant", content: resp });
                 await usuario.save();
 
-                // Envia Texto
                 await sock.sendMessage(from, { text: resp });
 
-                // Envia Áudio (TTS)
-                // Remove formatação visual para o áudio ficar limpo
                 const clean = resp.replace(/[\*\[\]]/g, '').replace(/❌.*?✅.*?\n/g, ''); 
                 if (clean.length > 2) {
                     const mp3 = await openai.audio.speech.create({ model: 'tts-1', voice: 'alloy', input: clean });
