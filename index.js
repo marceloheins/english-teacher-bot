@@ -1,4 +1,4 @@
-const { default: makeWASocket, DisconnectReason, fetchLatestBaileysVersion, makeInMemoryStore, downloadMediaMessage, BufferJSON, useMultiFileAuthState } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, DisconnectReason, makeInMemoryStore, downloadMediaMessage, BufferJSON, useMultiFileAuthState } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const { Boom } = require('@hapi/boom');
 const OpenAI = require("openai");
@@ -27,7 +27,7 @@ app.get('/', (req, res) => {
         res.send(`<html>${htmlHead}<style>${style}</style><body><div class="card"><h1 style="color:green">✅ Bot Conectado!</h1><p>Status: Online e Operante.</p><p>Vá ao WhatsApp e mande <b>!ping</b>.</p></div></body></html>`);
     } else if (ultimoQR) {
         const url = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(ultimoQR)}`;
-        res.send(`<html>${htmlHead}<style>${style}</style><body><div class="card"><h1>Escaneie o QR Code</h1><img src="${url}" style="border: 5px solid #333; border-radius: 10px;"/><p>Status: ${statusMsg}</p><p style="color:red; font-size: 12px;">Página atualiza a cada 5s.</p><p style="font-size: 10px; color: gray;">Tempo de conexão estendido (3 min).</p></div></body></html>`);
+        res.send(`<html>${htmlHead}<style>${style}</style><body><div class="card"><h1>Escaneie o QR Code</h1><img src="${url}" style="border: 5px solid #333; border-radius: 10px;"/><p>Status: ${statusMsg}</p><p style="color:red; font-size: 12px;">Página atualiza a cada 5s.</p><p style="font-size: 10px; color: gray;">Versão automática (Estável)</p></div></body></html>`);
     } else {
         res.send(`<html>${htmlHead}<style>${style}</style><body><div class="card"><h1>⏳ Carregando...</h1><p>${statusMsg}</p></div></body></html>`);
     }
@@ -132,32 +132,22 @@ async function startBot() {
     try {
         const { state, saveCreds, clearAll } = await useMongoDBAuthState(AuthStore);
         
-        // Tenta obter versão, usa fallback se falhar
-        let version;
-        try {
-            const v = await fetchLatestBaileysVersion();
-            version = v.version;
-            console.log(`📡 Versão obtida: ${version.join('.')}`);
-        } catch (e) {
-            console.log("⚠️ Falha ao obter versão, usando padrão seguro.");
-            version = [2, 3000, 1015901307];
-        }
+        // MUDANÇA: Removemos a busca de versão. Deixamos o Baileys usar o padrão interno.
+        console.log("📡 Usando versão padrão da biblioteca.");
 
         const sock = makeWASocket({
-            version,
+            // version: Não definimos versão, usamos a default
             logger: pino({ level: 'silent' }),
             printQRInTerminal: false, 
             auth: state,
-            // MUDANÇA: Browser Linux genérico e Chrome atualizado para melhor aceitação
+            // MUDANÇA: Assinatura Ubuntu/Chrome é mais estável no Linux
             browser: ["Ubuntu", "Chrome", "20.0.04"],
-            // MUDANÇA: Aumentado para 3 minutos (180s) para evitar erro no celular
-            connectTimeoutMs: 180000,
+            connectTimeoutMs: 60000,
             defaultQueryTimeoutMs: 0,
             keepAliveIntervalMs: 10000,
             emitOwnEvents: true,
-            // MUDANÇA: Mais tempo entre tentativas de rede
-            retryRequestDelayMs: 5000,
-            markOnlineOnConnect: false
+            retryRequestDelayMs: 2000,
+            markOnlineOnConnect: true // Força online para ajudar na estabilidade inicial
         });
 
         sock.ev.on('connection.update', async (update) => {
@@ -178,12 +168,15 @@ async function startBot() {
                 console.log(`❌ Conexão Fechada. Code: ${statusCode}, Msg: ${errorMsg}`);
                 statusMsg = `Desconectado (${errorMsg}). Tentando reconectar...`;
 
-                // DETECTA ERROS FATAIS E LIMPA O BANCO
+                // DETECTA ERROS FATAIS
+                // Se der Stream Errored, limpamos.
                 if (errorMsg.includes('Connection Failure') || errorMsg.includes('Stream Errored') || errorMsg.includes('Bad MAC') || statusCode === 401) {
                     console.log("⚠️ ERRO CRÍTICO DETECTADO. LIMPANDO DADOS E REINICIANDO INTERNAMENTE...");
                     await clearAll(); 
                     statusMsg = "Reiniciando sessão limpa...";
                     ultimoQR = ""; 
+                    
+                    // Reinicia a função do bot após 3 segundos
                     setTimeout(startBot, 3000);
                     return; 
                 }
