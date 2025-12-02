@@ -27,7 +27,7 @@ app.get('/', (req, res) => {
         res.send(`<html>${htmlHead}<style>${style}</style><body><div class="card"><h1 style="color:green">✅ Bot Conectado!</h1><p>Status: Online e Operante.</p><p>Vá ao WhatsApp e mande <b>!ping</b>.</p></div></body></html>`);
     } else if (ultimoQR) {
         const url = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(ultimoQR)}`;
-        res.send(`<html>${htmlHead}<style>${style}</style><body><div class="card"><h1>Escaneie o QR Code</h1><img src="${url}" style="border: 5px solid #333; border-radius: 10px;"/><p>Status: ${statusMsg}</p><p style="color:red; font-size: 12px;">Página atualiza a cada 5s.</p></div></body></html>`);
+        res.send(`<html>${htmlHead}<style>${style}</style><body><div class="card"><h1>Escaneie o QR Code</h1><img src="${url}" style="border: 5px solid #333; border-radius: 10px;"/><p>Status: ${statusMsg}</p><p style="color:red; font-size: 12px;">Página atualiza a cada 5s.</p><p style="font-size: 10px; color: gray;">Tempo de conexão estendido (3 min).</p></div></body></html>`);
     } else {
         res.send(`<html>${htmlHead}<style>${style}</style><body><div class="card"><h1>⏳ Carregando...</h1><p>${statusMsg}</p></div></body></html>`);
     }
@@ -132,7 +132,7 @@ async function startBot() {
     try {
         const { state, saveCreds, clearAll } = await useMongoDBAuthState(AuthStore);
         
-        // Tenta obter versão, usa fallback se falhar (evita crash)
+        // Tenta obter versão, usa fallback se falhar
         let version;
         try {
             const v = await fetchLatestBaileysVersion();
@@ -148,12 +148,15 @@ async function startBot() {
             logger: pino({ level: 'silent' }),
             printQRInTerminal: false, 
             auth: state,
-            browser: ["TeacherBot", "Chrome", "1.0"],
-            connectTimeoutMs: 60000,
+            // MUDANÇA: Browser Linux genérico e Chrome atualizado para melhor aceitação
+            browser: ["Ubuntu", "Chrome", "20.0.04"],
+            // MUDANÇA: Aumentado para 3 minutos (180s) para evitar erro no celular
+            connectTimeoutMs: 180000,
             defaultQueryTimeoutMs: 0,
             keepAliveIntervalMs: 10000,
             emitOwnEvents: true,
-            retryRequestDelayMs: 2000,
+            // MUDANÇA: Mais tempo entre tentativas de rede
+            retryRequestDelayMs: 5000,
             markOnlineOnConnect: false
         });
 
@@ -176,14 +179,11 @@ async function startBot() {
                 statusMsg = `Desconectado (${errorMsg}). Tentando reconectar...`;
 
                 // DETECTA ERROS FATAIS E LIMPA O BANCO
-                // Em vez de process.exit, limpamos e reiniciamos a função
                 if (errorMsg.includes('Connection Failure') || errorMsg.includes('Stream Errored') || errorMsg.includes('Bad MAC') || statusCode === 401) {
                     console.log("⚠️ ERRO CRÍTICO DETECTADO. LIMPANDO DADOS E REINICIANDO INTERNAMENTE...");
                     await clearAll(); 
                     statusMsg = "Reiniciando sessão limpa...";
-                    ultimoQR = ""; // Limpa QR antigo
-                    
-                    // Reinicia a função do bot após 3 segundos (sem matar o servidor)
+                    ultimoQR = ""; 
                     setTimeout(startBot, 3000);
                     return; 
                 }
@@ -287,10 +287,8 @@ async function startBot() {
         });
     } catch (err) {
         console.error("Erro fatal ao iniciar bot:", err);
-        // Tenta reiniciar após 10s em caso de falha grave na inicialização
         setTimeout(startBot, 10000);
     }
 }
 
-// Inicia com tratamento de erro global
 startBot().catch(err => console.error("Erro não tratado no startBot:", err));
