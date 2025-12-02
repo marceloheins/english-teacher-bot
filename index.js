@@ -1,4 +1,4 @@
-const { default: makeWASocket, DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion, makeInMemoryStore, downloadMediaMessage } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion, makeInMemoryStore, downloadMediaMessage, BufferJSON } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const { Boom } = require('@hapi/boom');
 const OpenAI = require("openai");
@@ -27,15 +27,12 @@ app.get('/', (req, res) => {
         const url = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(ultimoQR)}`;
         res.send(`
             <html>
-                <head>
-                    <!-- ATUALIZA A PÁGINA A CADA 5 SEGUNDOS PARA O QR CODE NÃO EXPIRAR -->
-                    <meta http-equiv="refresh" content="5">
-                </head>
+                <head><meta http-equiv="refresh" content="5"></head>
                 <body>
                     <div style="display:flex; justify-content:center; align-items:center; height:100vh; background-color:#f0f0f0; font-family:sans-serif; flex-direction:column;">
                         <h1>Escaneie Agora:</h1>
                         <img src="${url}" style="border:5px solid #333; border-radius:10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);" />
-                        <p style="font-weight: bold; color: red;">A página atualiza sozinha a cada 5s para garantir que o código é válido.</p>
+                        <p style="font-weight: bold; color: red;">A página atualiza a cada 5s.</p>
                         <p>Funciona com WhatsApp Pessoal e Business.</p>
                     </div>
                 </body>
@@ -69,25 +66,43 @@ const userSchema = new mongoose.Schema({
 });
 const User = mongoose.model('User', userSchema);
 
-const sessionSchema = new mongoose.Schema({ _id: String, data: Object });
+// Schema flexível para salvar sessão
+const sessionSchema = new mongoose.Schema({ _id: String, data: Object }, { strict: false });
 const Session = mongoose.model('Session', sessionSchema);
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// --- 3. FUNÇÃO DE AUTH PERSONALIZADA (MONGO) ---
+// --- 3. FUNÇÃO DE AUTH PERSONALIZADA (CORRIGIDA) ---
 const useMongoDBAuthState = async (collection) => {
-    const writeData = (data, file) => {
-        return collection.updateOne({ _id: file }, { $set: { data: JSON.parse(JSON.stringify(data, (key, value) => (typeof value === 'bigint' ? value.toString() : value))) } }, { upsert: true });
+    // Serializador customizado para lidar com Buffers e BigInts do Baileys
+    const fixData = (data) => {
+        return JSON.parse(JSON.stringify(data, BufferJSON.replacer), BufferJSON.reviver);
     };
+
+    const writeData = (data, file) => {
+        // Salva usando o replacer do Baileys para não corromper Buffers
+        return collection.updateOne(
+            { _id: file }, 
+            { $set: { data: JSON.parse(JSON.stringify(data, BufferJSON.replacer)) } }, 
+            { upsert: true }
+        );
+    };
+
     const readData = async (file) => {
         const doc = await collection.findOne({ _id: file });
-        return doc ? doc.data : null;
+        if (!doc || !doc.data) return null;
+        // Restaura Buffers usando o reviver do Baileys
+        return JSON.parse(JSON.stringify(doc.data), BufferJSON.reviver);
     };
+
     const removeData = async (file) => {
         await collection.deleteOne({ _id: file });
     };
 
-    // Tenta ler do banco. Se não existir, cria novas credenciais.
+    const clearAll = async () => {
+        await collection.deleteMany({});
+    };
+
     let creds = await readData('creds');
     if (!creds) {
         creds = (await require('@whiskeysockets/baileys').initAuthCreds());
@@ -122,7 +137,8 @@ const useMongoDBAuthState = async (collection) => {
                 }
             }
         },
-        saveCreds: () => writeData(creds, 'creds')
+        saveCreds: () => writeData(creds, 'creds'),
+        clearAll // Exporta função para limpar tudo em caso de erro fatal
     };
 };
 
@@ -130,24 +146,23 @@ const useMongoDBAuthState = async (collection) => {
 async function startBot() {
     console.log("🚀 Iniciando Baileys...");
     
-    const { state, saveCreds } = await useMongoDBAuthState(Session);
+    const { state, saveCreds, clearAll } = await useMongoDBAuthState(Session);
     const { version } = await fetchLatestBaileysVersion();
 
     const sock = makeWASocket({
         version,
         logger: pino({ level: 'silent' }),
-        printQRInTerminal: false, // REMOVIDO AVISO DEPRECATED
+        printQRInTerminal: false,
         auth: state,
-        // Mudamos para navegador padrão para evitar suspeitas do WhatsApp
         browser: ["Teacher Bot", "Chrome", "1.0.0"], 
-        connectTimeoutMs: 300000, // AUMENTADO PARA 5 MINUTOS
+        connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 0, 
         keepAliveIntervalMs: 10000, 
-        retryRequestDelayMs: 5000, // Tenta novamente se falhar
+        retryRequestDelayMs: 5000,
         syncFullHistory: false 
     });
 
-    sock.ev.on('connection.update', (update) => {
+    sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
         
         if (qr) {
@@ -156,12 +171,26 @@ async function startBot() {
         }
 
         if (connection === 'close') {
-            const shouldReconnect = (lastDisconnect.error instanceof Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
-            console.log(`❌ Conexão fechada. Reconectando... ${shouldReconnect}`);
+            const error = lastDisconnect?.error;
+            const statusCode = (error instanceof Boom)?.output?.statusCode;
+            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+            
+            console.log(`❌ Conexão fechada. Status: ${statusCode}, Reconectar: ${shouldReconnect}`);
+            
+            // DETECÇÃO DE CORRUPÇÃO DE DADOS
+            // Se o erro for relacionado a criptografia (Bad MAC, etc), limpamos o banco
+            const errorMsg = error?.message || "";
+            if (errorMsg.includes('Bad MAC') || errorMsg.includes('pre-key') || statusCode === 401) {
+                console.log("⚠️ SESSÃO CORROMPIDA OU DESLOGADA. LIMPANDO DADOS DO BANCO...");
+                await clearAll();
+                console.log("✅ Banco limpo. Reiniciando para gerar novo QR Code limpo.");
+                // Força reinicio limpo
+                process.exit(0); // O Render vai reiniciar o processo automaticamente
+            }
+
             isConnected = false;
             
             if (shouldReconnect) {
-                // Aumentei o delay para 5s para evitar martelar o servidor
                 setTimeout(startBot, 5000); 
             }
         } else if (connection === 'open') {
