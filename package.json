@@ -1,12 +1,12 @@
 {
   "name": "teacher-bot",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.5",
+    "@whiskeysockets/baileys": "latest",
     "pino": "^9.0.0",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
