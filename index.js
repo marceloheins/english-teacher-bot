@@ -30,10 +30,10 @@ app.get('/', (req, res) => {
                 <head><meta http-equiv="refresh" content="5"></head>
                 <body>
                     <div style="display:flex; justify-content:center; align-items:center; height:100vh; background-color:#f0f0f0; font-family:sans-serif; flex-direction:column;">
-                        <h1>Escaneie Agora:</h1>
+                        <h1>Escaneie Agora (Sessão Limpa):</h1>
                         <img src="${url}" style="border:5px solid #333; border-radius:10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);" />
                         <p style="font-weight: bold; color: red;">A página atualiza a cada 5s.</p>
-                        <p>Limite de conexão aumentado para 3 minutos.</p>
+                        <p><b>Nota:</b> Criamos uma nova sessão limpa no banco.</p>
                     </div>
                 </body>
             </html>
@@ -66,45 +66,57 @@ const userSchema = new mongoose.Schema({
 });
 const User = mongoose.model('User', userSchema);
 
-// Schema flexível para salvar sessão
+// MUDANÇA CRUCIAL: Mudamos o nome do Model para forçar uma coleção nova e limpa no banco
+// Antes era 'Session', agora é 'BaileysAuth'. O Mongo vai criar uma pasta nova 'baileysauths'.
 const sessionSchema = new mongoose.Schema({ _id: String, data: Object }, { strict: false });
-const Session = mongoose.model('Session', sessionSchema);
+const Session = mongoose.model('BaileysAuth', sessionSchema);
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // --- 3. FUNÇÃO DE AUTH PERSONALIZADA (CORRIGIDA) ---
 const useMongoDBAuthState = async (collection) => {
-    // Serializador customizado para lidar com Buffers e BigInts do Baileys
-    const fixData = (data) => {
-        return JSON.parse(JSON.stringify(data, BufferJSON.replacer), BufferJSON.reviver);
-    };
-
     const writeData = (data, file) => {
-        // Salva usando o replacer do Baileys para não corromper Buffers
-        return collection.updateOne(
-            { _id: file }, 
-            { $set: { data: JSON.parse(JSON.stringify(data, BufferJSON.replacer)) } }, 
-            { upsert: true }
-        );
+        try {
+            return collection.updateOne(
+                { _id: file }, 
+                { $set: { data: JSON.parse(JSON.stringify(data, BufferJSON.replacer)) } }, 
+                { upsert: true }
+            );
+        } catch (error) {
+            console.error("Erro ao escrever dados de sessão:", error);
+        }
     };
 
     const readData = async (file) => {
-        const doc = await collection.findOne({ _id: file });
-        if (!doc || !doc.data) return null;
-        // Restaura Buffers usando o reviver do Baileys
-        return JSON.parse(JSON.stringify(doc.data), BufferJSON.reviver);
+        try {
+            const doc = await collection.findOne({ _id: file });
+            if (!doc || !doc.data) return null;
+            return JSON.parse(JSON.stringify(doc.data), BufferJSON.reviver);
+        } catch (error) {
+            console.error("Erro ao ler dados de sessão (pode estar corrompido):", error);
+            return null;
+        }
     };
 
     const removeData = async (file) => {
-        await collection.deleteOne({ _id: file });
+        try {
+            await collection.deleteOne({ _id: file });
+        } catch (error) {
+            console.error("Erro ao remover dados:", error);
+        }
     };
 
     const clearAll = async () => {
-        await collection.deleteMany({});
+        try {
+            await collection.deleteMany({});
+        } catch (error) {
+            console.error("Erro ao limpar tudo:", error);
+        }
     };
 
     let creds = await readData('creds');
     if (!creds) {
+        console.log("🆕 Criando novas credenciais limpas...");
         creds = (await require('@whiskeysockets/baileys').initAuthCreds());
         await writeData(creds, 'creds');
     }
@@ -138,7 +150,7 @@ const useMongoDBAuthState = async (collection) => {
             }
         },
         saveCreds: () => writeData(creds, 'creds'),
-        clearAll // Exporta função para limpar tudo em caso de erro fatal
+        clearAll
     };
 };
 
@@ -154,10 +166,9 @@ async function startBot() {
         logger: pino({ level: 'silent' }),
         printQRInTerminal: false,
         auth: state,
-        // Usar "Ubuntu" às vezes ajuda na compatibilidade e evita timeouts em conexões lentas
-        browser: ["Teacher Bot", "Ubuntu", "3.0.0"], 
-        // AUMENTADO PARA 3 MINUTOS (180s) para dar tempo de processar
-        connectTimeoutMs: 180000, 
+        // Usando Chrome padrão para máxima compatibilidade
+        browser: ["Teacher Bot", "Chrome", "10.0"], 
+        connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 0, 
         keepAliveIntervalMs: 10000, 
         retryRequestDelayMs: 5000,
@@ -177,26 +188,26 @@ async function startBot() {
             const statusCode = (error instanceof Boom)?.output?.statusCode;
             const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
             
-            console.log(`❌ Conexão fechada. Status: ${statusCode}, Reconectar: ${shouldReconnect}`);
+            // LOG DE ERRO DETALHADO
+            console.log(`❌ Conexão fechada. Status: ${statusCode}, Erro: ${error?.message}, Reconectar: ${shouldReconnect}`);
             
-            // DETECÇÃO DE CORRUPÇÃO DE DADOS
-            // Se o erro for relacionado a criptografia (Bad MAC, etc), limpamos o banco
+            // Se for erro de criptografia ou 401 (Unauthorized), limpamos tudo
             const errorMsg = error?.message || "";
-            if (errorMsg.includes('Bad MAC') || errorMsg.includes('pre-key') || statusCode === 401) {
-                console.log("⚠️ SESSÃO CORROMPIDA OU DESLOGADA. LIMPANDO DADOS DO BANCO...");
+            if (errorMsg.includes('Bad MAC') || errorMsg.includes('pre-key') || statusCode === 401 || statusCode === 428) {
+                console.log("⚠️ DADOS INVÁLIDOS DETECTADOS. RESETANDO SESSÃO...");
                 await clearAll();
-                console.log("✅ Banco limpo. Reiniciando para gerar novo QR Code limpo.");
-                // Força reinicio limpo
-                process.exit(0); // O Render vai reiniciar o processo automaticamente
+                console.log("✅ Banco limpo. O próximo inicio será do zero.");
+                process.exit(0);
             }
 
             isConnected = false;
             
             if (shouldReconnect) {
-                setTimeout(startBot, 5000); 
+                // Delay para não flodar o log se estiver em loop
+                setTimeout(startBot, 3000); 
             }
         } else if (connection === 'open') {
-            console.log('✅✅✅ CONEXÃO ABERTA E PRONTA ✅✅✅');
+            console.log('✅✅✅ CONEXÃO ESTABELECIDA COM SUCESSO ✅✅✅');
             isConnected = true;
             ultimoQR = ""; 
         }
