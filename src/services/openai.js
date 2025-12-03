@@ -1,14 +1,18 @@
 const OpenAI = require("openai");
+// fs para arquivos
 const fs = require("fs");
+// dotenv para variaveis de ambiente
 require('dotenv').config();
 
+//inicia o OpenAI "gpt"
 const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY
 });
 
-//Ouvir 
+//Ouvir áudio
 async function transcribeAudio(filePath) {
     try {
+        //
         const transcription = await openai.audio.transcriptions.create({
             file: fs.createReadStream(filePath),
             model: "whisper-1",
@@ -23,7 +27,7 @@ async function transcribeAudio(filePath) {
     }
 }
 
-//Pensar
+//Pensar em resposta
 async function getChatResponse(user, inputText) {
     try {
         //prompt
@@ -33,21 +37,26 @@ async function getChatResponse(user, inputText) {
         3. If the user's sentence is perfect, add [XP] at the end.
         4. Always end with a simple follow-up question to keep the conversation going.`;
 
-        //Historico recente
+        //Historico recente limitado a 6 interações 
         const history = user.history.slice(-6).map(h => ({
             role: h.role,
             content: h.content
         }));
 
+        //Gera resposta
         const completion = await openai.chat.completions.create({
             model: "gpt-4o",
             messages: [
+                //Prompt
                 { role: "system", content: systemPrompt },
+                //Historico
                 ...history,
+                //Input
                 { role: "user", content: inputText }
             ]
         });
 
+        //Retorna resposta
         return completion.choices[0].message.content;
     } catch (error) {
         console.error("Erro ao obter resposta:", error);
@@ -56,20 +65,23 @@ async function getChatResponse(user, inputText) {
     }
 }
 
-//Falar
+//Falar 
 async function textToSpeech(text) {
     try {
         //limpa formatação para nao ler caracteres especiais
         const cleanText = text.replace(/[\*\[\]]/g, '').replace(/❌.*?✅.*?\n/g, '').replace(/Correction:.*?Tip:.*?\n/gs, '');
 
-        if (cleanText.lenght < 2) return null;
+        //se texto for menor que 2 caracteres, nao gera áudio
+        if (cleanText.length < 2) return null;
 
+        //Gera áudio
         const mp3 = await openai.audio.speech.create({
             model: "tts-1-hd",
             voice: "onyx",
             input: cleanText
         });
 
+        //Retorna áudio
         return Buffer.from(await mp3.arrayBuffer());
 
     } catch (error) {

@@ -12,10 +12,12 @@ const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 // Middleware: Carrega o usuário do banco em toda mensagem
 async function getUserMiddleware(ctx, next) {
     if (!ctx.from) return next();
-    
+    //pega o id do usuario
     const userId = String(ctx.from.id);
+    //busca o usuario no banco de dados
     let user = await User.findOne({ telegramId: userId });
 
+    //se nao existir, cria um novo usuario
     if (!user) {
         user = new User({ 
             telegramId: userId,
@@ -33,14 +35,17 @@ bot.use(getUserMiddleware);
 
 // --- COMANDOS ---
 
+//Startar Bot
 bot.start((ctx) => {
     ctx.reply(`Hello ${ctx.user.firstName}! 👋\nI'm your English Teacher.\nSend me a voice message or text to start practicing!`);
 });
 
+//Comando perfil
 bot.command('perfil', (ctx) => {
     ctx.reply(`📊 **Profile**\nName: ${ctx.user.firstName}\nLevel: ${ctx.user.level}\nXP: ${ctx.user.xp} ✨`);
 });
 
+//Comando reset
 bot.command('reset', async (ctx) => {
     ctx.user.history = [];
     await ctx.user.save();
@@ -49,12 +54,12 @@ bot.command('reset', async (ctx) => {
 
 // --- PROCESSAMENTO DE MENSAGENS ---
 
-// Função central de resposta (usada para texto e áudio)
+//Função central de resposta (usada para texto e áudio)
 async function processInteraction(ctx, inputText) {
-    // 1. Mostrar que está "escrevendo..."
+    //Mostrar que está "escrevendo..."
     await ctx.sendChatAction('typing');
 
-    // 2. Obter resposta da IA
+    //Obter resposta da IA 
     let responseText = await aiService.getChatResponse(ctx.user, inputText);
 
     // 3. Sistema de XP
@@ -81,6 +86,7 @@ async function processInteraction(ctx, inputText) {
 
     // 6. Responder áudio (Voice)
     try {
+        //converte texto em áudio
         const audioBuffer = await aiService.textToSpeech(responseText);
         if (audioBuffer) {
             await ctx.sendChatAction('record_voice');
@@ -91,35 +97,39 @@ async function processInteraction(ctx, inputText) {
     }
 }
 
-// Handler de Texto
+//Agente de texto
 bot.on(message('text'), async (ctx) => {
     await processInteraction(ctx, ctx.message.text);
 });
 
-// Handler de Áudio
+//Agente de áudio
 bot.on(message('voice'), async (ctx) => {
     try {
         await ctx.sendChatAction('typing');
         
         // 1. Baixar arquivo
         const fileId = ctx.message.voice.file_id;
+        //pega o link do arquivo
         const fileLink = await ctx.telegram.getFileLink(fileId);
-        
+        //cria um arquivo temporario
         const tempPath = path.resolve(__dirname, `../../voice_${ctx.user.telegramId}.ogg`);
+        //cria um stream para o arquivo
         const writer = fs.createWriteStream(tempPath);
-        
+        //baixa o arquivo
         const response = await axios({ url: fileLink.href, responseType: 'stream' });
+        //escreve o arquivo
         response.data.pipe(writer);
 
+        //espera o arquivo ser escrito
         await new Promise((resolve, reject) => {
             writer.on('finish', resolve);
             writer.on('error', reject);
         });
 
-        // 2. Transcrever
+        // 2. Transcrever o audio
         const text = await aiService.transcribeAudio(tempPath);
         
-        // Feedback visual
+        // Feedback visual Ouvindo
         await ctx.reply(`👂 Heard: _"${text}"_`, { parse_mode: 'Markdown' });
         
         // Limpeza

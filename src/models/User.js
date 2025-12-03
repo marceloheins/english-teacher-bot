@@ -1,5 +1,8 @@
+
+//mongoose para banco de dados
 const mongoose = require("mongoose");
 
+//Schema do usuario
 const userSchema = new mongoose.Schema({
     telegramId : { type: String, required: true, unique: true },
     fisrtName: String,
