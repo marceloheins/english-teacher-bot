@@ -7,8 +7,8 @@ const openai = new OpenAI({
 });
 
 //Ouvir 
-async function transcribeAudio(filePath){
-    try{
+async function transcribeAudio(filePath) {
+    try {
         const transcription = await openai.audio.transcriptions.create({
             file: fs.createReadStream(filePath),
             model: "whisper-1",
@@ -16,7 +16,7 @@ async function transcribeAudio(filePath){
         });
 
         return transcription.text;
-    }catch(error){
+    } catch (error) {
         console.error("Erro ao transcrever áudio:", error);
         return null;
 
@@ -24,10 +24,10 @@ async function transcribeAudio(filePath){
 }
 
 //Pensar
-async function getChatresponse(user, inputText){
-    try{
+async function getChatResponse(user, inputText) {
+    try {
         //prompt
-         const systemPrompt = `You are an English Teacher. Student Level: ${user.level}.
+        const systemPrompt = `You are an English Teacher. Student Level: ${user.level}.
         1. Reply concisely in English.
         2. Format corrections like: "❌ Error -> ✅ Correction".
         3. If the user's sentence is perfect, add [XP] at the end.
@@ -49,7 +49,7 @@ async function getChatresponse(user, inputText){
         });
 
         return completion.choices[0].message.content;
-    }catch(error){
+    } catch (error) {
         console.error("Erro ao obter resposta:", error);
         return "Sorry, I am having trouble thinking right now. ";
 
@@ -57,11 +57,11 @@ async function getChatresponse(user, inputText){
 }
 
 //Falar
-async function textSpeech(text){
-    try{
+async function textSpeech(text) {
+    try {
         //limpa formatação para nao ler caracteres especiais
         const cleanText = text.replace(/[\*\[\]]/g, '').replace(/❌.*?✅.*?\n/g, '').replace(/Correction:.*?Tip:.*?\n/gs, '');
-        
+
         if (cleanText.lenght < 2) return null;
 
         const mp3 = await openai.audio.speech.create({
@@ -72,7 +72,7 @@ async function textSpeech(text){
 
         return Buffer.from(await mp3.arrayBuffer());
 
-    }catch(error){
+    } catch (error) {
         console.error("Erro ao converter texto em áudio:", error);
         return null;
     }
@@ -80,6 +80,6 @@ async function textSpeech(text){
 
 module.exports = {
     transcribeAudio,
-    getChatresponse,
+    getChatResponse,
     textSpeech
 };
