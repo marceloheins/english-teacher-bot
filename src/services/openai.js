@@ -28,7 +28,7 @@ async function getChatResponse(user, inputText) {
     try {
         //prompt
         const systemPrompt = `You are an English Teacher. Student Level: ${user.level}.
-        1. Reply concisely in English.
+        1. Reply concisely in English and Portuguese.
         2. Format corrections like: "❌ Error -> ✅ Correction".
         3. If the user's sentence is perfect, add [XP] at the end.
         4. Always end with a simple follow-up question to keep the conversation going.`;
@@ -57,7 +57,7 @@ async function getChatResponse(user, inputText) {
 }
 
 //Falar
-async function textSpeech(text) {
+async function textToSpeech(text) {
     try {
         //limpa formatação para nao ler caracteres especiais
         const cleanText = text.replace(/[\*\[\]]/g, '').replace(/❌.*?✅.*?\n/g, '').replace(/Correction:.*?Tip:.*?\n/gs, '');
@@ -81,5 +81,5 @@ async function textSpeech(text) {
 module.exports = {
     transcribeAudio,
     getChatResponse,
-    textSpeech
+    textToSpeech
 };
