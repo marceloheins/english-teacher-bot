@@ -60,7 +60,7 @@ bot.action('mode_restaurant', async (ctx) => {
     ctx.user.mode = 'roleplay_restaurant';
     ctx.user.history = [];
     await ctx.user.save();
-    ctx.reply("🍽️ **Scene Started:** You are at a restaurant in NYC. I am your waiter.\n\n*Waiter:* 'Good evening! Table for one?'");
+    ctx.reply("🍽️ **Scene Started:** You are at a restaurant in NYC. I am your waiter.\n\n*Waiter:* Good evening! Table for one?");
 });
 
 //Botao aeroporto
@@ -68,7 +68,7 @@ bot.action('mode_immigration', async (ctx) => {
     ctx.user.mode = 'roleplay_immigration';
     ctx.user.history = [];
     await ctx.user.save();
-    ctx.reply("✈️ **Scene Started:** You just landed in London. I am the officer.\n\n*Officer:* 'Passport, please. What is the purpose of your visit?'");
+    ctx.reply("✈️ **Scene Started:** You just landed in London. I am the officer.\n\n*Officer:* Passport, please. What is the purpose of your visit?");
 });
 
 //Botao reset
