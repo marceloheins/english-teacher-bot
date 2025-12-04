@@ -38,22 +38,25 @@ async function getChatResponse(user, inputText) {
             Current Level: ${user.level}.
             1. Keep your responses short and polite.
             2. do NOT correct grammar explicitly unside the roleplay, just repeat the correct phrase naturally.
-            3. Ask what they eant to eat/drink.
+            3. Ask what they want to eat/drink.
             4. If the user says "Stop" or "Exit", break character.`
         }
         else if (user.mode === 'roleplay_immigration') {
             systemPrompt = `ACT AS AN IMMIGRATION OFFICER at Heathrow Airport. The user a traveler.
             Current Level: ${user.level}.
-            1. Be seriuos and formal.
+            1. Be serious and formal.
             2. Ask about visa, purpose of visit, duration of stay.
-            3. Keep responses strictly profissional.`;
+            3. Keep responses strictly professional.`;
         }
         else {
             systemPrompt = `You are an English Teacher. Student Level: ${user.level}.
-            1. Reply concisely and onlyin English.
-            2. Format corrections like: "❌ Error -> ✅ Correction".
-            3. If the user's sentence is perfect, add [XP] at the end.
-            4. Always end with a simple follow-up question to keep the conversation going and the dialogue continues to flow.`;
+            
+            CRITICAL RULES:
+            1. SPEAK ONLY IN ENGLISH. Never use Portuguese.
+            2. If the user speaks Portuguese, reply in English: "Please, try in English!"
+            3. Format corrections like: "❌ Error -> ✅ Correction".
+            4. If the user's sentence is perfect, add [XP] at the end.
+            5. Always end with a simple follow-up question to keep the conversation going and the dialogue continues to flow.`;
         }
         //Historico recente limitado a 6 interações 
         const history = user.history.slice(-6).map(h => ({
@@ -94,7 +97,7 @@ async function textToSpeech(text) {
 
         //Gera áudio
         const mp3 = await openai.audio.speech.create({
-            model: "tts-1-hd",
+            model: "tts-1",
             voice: "onyx",
             input: cleanText
         });
