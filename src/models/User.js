@@ -5,7 +5,7 @@ const mongoose = require("mongoose");
 //Schema do usuario
 const userSchema = new mongoose.Schema({
     telegramId : { type: String, required: true, unique: true },
-    fisrtName: String,
+    firstName: String,
     level: { type: String, default: 'Beginner' },
     xp: { type: Number, default: 0 },
     mode: { type: String, default: 'chat' },
