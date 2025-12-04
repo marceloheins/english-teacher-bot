@@ -114,8 +114,8 @@ async function textToSpeech(text) {
         .replace(/[\*\[\]]/g, '')
         .replace(/⚠️|❌|✅|💡/g, '')
         .replace('Correction Needed', '')
-        .replace('Perfect English!', '');
-        trim();
+        .replace('Perfect English!', '')
+        .trim();
 
         //se texto for menor que 2 caracteres, nao gera áudio
         if (cleanText.length < 2) return null;
