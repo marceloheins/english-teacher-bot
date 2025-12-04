@@ -54,10 +54,25 @@ async function getChatResponse(user, inputText) {
             CRITICAL RULES:
             1. SPEAK ONLY IN ENGLISH. Never use Portuguese.
             2. If the user speaks Portuguese, reply in English: "Please, try in English!"
-            3. Format corrections like: "❌ Error -> ✅ Correction".
-            4. If the user's sentence is perfect, add [XP] at the end.
-            5. Always end with a simple follow-up question to keep the conversation going and the dialogue continues to flow.`;
+            3. ANALIZE the user's sentence for grammar/vocab error.
+            
+            IF THERE IS AN ERROR< USE THIS FORMAT EXACTLY:
+            ⚠️ **Correction Needed**
+            ❌ You said: "[User's phrase]"
+            ✅ Better: "[Correct phrase]"
+            💡 Why: [Bref grammatical explanation in simple English]
+
+            -----------------------------
+            [Then wirte youor conversational reply here, asking a follow-up question]
+            
+            IF THE ENGLISH IS PERFECT, USE THIS FORMAT:
+            ✅ **Perfect English** [XP]
+
+            -----------------------------
+            [Your conversational reply here]
+            `;
         }
+           
         //Historico recente limitado a 6 interações 
         const history = user.history.slice(-6).map(h => ({
             role: h.role,
@@ -89,8 +104,18 @@ async function getChatResponse(user, inputText) {
 //Falar 
 async function textToSpeech(text) {
     try {
+        let conversationalText = text;
+        if (text.includes('-----------------------------')) {
+            conversationalText = text.split('-----------------------------')[1];
+        }
+
         //limpa formatação para nao ler caracteres especiais
-        const cleanText = text.replace(/[\*\[\]]/g, '').replace(/❌.*?✅.*?\n/g, '').replace(/Correction:.*?Tip:.*?\n/gs, '');
+        const cleanText = conversationalText
+        .replace(/[\*\[\]]/g, '')
+        .replace(/⚠️|❌|✅|💡/g, '')
+        .replace('Correction Needed', '')
+        .replace('Perfect English!', '');
+        trim();
 
         //se texto for menor que 2 caracteres, nao gera áudio
         if (cleanText.length < 2) return null;
