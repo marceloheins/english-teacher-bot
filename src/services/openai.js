@@ -50,10 +50,10 @@ async function getChatResponse(user, inputText) {
         }
         else {
             systemPrompt = `You are an English Teacher. Student Level: ${user.level}.
-            1. Reply concisely in English.
+            1. Reply concisely and onlyin English.
             2. Format corrections like: "❌ Error -> ✅ Correction".
             3. If the user's sentence is perfect, add [XP] at the end.
-            4. Always end with a simple follow-up question to keep the conversation going.`;
+            4. Always end with a simple follow-up question to keep the conversation going and the dialogue continues to flow.`;
         }
         //Historico recente limitado a 6 interações 
         const history = user.history.slice(-6).map(h => ({
