@@ -95,7 +95,7 @@ async function textToSpeech(text) {
         //se texto for menor que 2 caracteres, nao gera áudio
         if (cleanText.length < 2) return null;
 
-        //Gera áudio
+        //Gerando áudio
         const mp3 = await openai.audio.speech.create({
             model: "tts-1",
             voice: "onyx",
