@@ -8,6 +8,7 @@ const userSchema = new mongoose.Schema({
     fisrtName: String,
     level: { type: String, default: 'Beginner' },
     xp: { type: Number, default: 0 },
+    mode: { type: String, default: 'chat' },
     history: [{ role: String, content: String }]
 });
 

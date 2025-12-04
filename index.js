@@ -1,7 +1,8 @@
+require('dotenv').config();
 const express = require("express");
 const connectDB = require("./src/config/db");
 const bot = require("./src/bot/index");
-require('dotenv').config();
+
 
 //CONFIGURAÇÃO INICIAL 
 const app = express();

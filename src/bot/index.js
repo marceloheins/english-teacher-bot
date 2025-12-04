@@ -33,29 +33,60 @@ async function getUserMiddleware(ctx, next) {
 
 bot.use(getUserMiddleware);
 
-// --- COMANDOS ---
+// BOTÔES
 
 //Startar Bot
 bot.start((ctx) => {
-    ctx.reply(`Hello ${ctx.user.firstName}! 👋\nI'm your English Teacher.\nSend me a voice message or text to start practicing!`);
+    ctx.reply(
+        `Welcome back, ${ctx.user.firstName}! 🎓\nLevel: ${ctx.user.level} | XP: ${ctx.user.xp}\n\nChoose an option:`,
+        Markup.inlineKeyboard([
+            [Markup.button.callback('💬 Free Chat', 'mode_chat')],
+            [Markup.button.callback('🍔 Roleplay: Restaurant', 'mode_restaurant')],
+            [Markup.button.callback('✈️ Roleplay: Airport', 'mode_immigration')],
+            [Markup.button.callback('🗑️ Reset Memory', 'cmd_reset')]
+        ])
+    );
 });
 
-//Comando perfil
-bot.command('perfil', (ctx) => {
-    ctx.reply(`📊 **Profile**\nName: ${ctx.user.firstName}\nLevel: ${ctx.user.level}\nXP: ${ctx.user.xp} ✨`);
+//Botao voltar ao CHAT NORMAL
+bot.action('mode_chat', async (ctx) => {
+    ctx.user.mode = 'chat';
+    await ctx.user.save();
+    ctx.reply("👨‍🏫 Okay! Back to normal classes. What do you want to learn today?");
 });
 
-//Comando reset
-bot.command('reset', async (ctx) => {
+//Botao restaurante
+bot.action('mode_restaurant', async (ctx) => {
+    ctx.user.mode = 'roleplay_restaurant';
     ctx.user.history = [];
     await ctx.user.save();
-    ctx.reply("🧠 Memory erased. Let's start fresh!");
+    ctx.reply("🍽️ **Scene Started:** You are at a restaurant in NYC. I am your waiter.\n\n*Waiter:* 'Good evening! Table for one?'");
+});
+
+//Botao aeroporto
+bot.action('mode_immigration', async (ctx) => {
+    ctx.user.mode = 'roleplay_immigration';
+    ctx.user.history = [];
+    await ctx.user.save();
+    ctx.reply("✈️ **Scene Started:** You just landed in London. I am the officer.\n\n*Officer:* 'Passport, please. What is the purpose of your visit?'");
+});
+
+//Botao reset
+bot.action('cmd_reset',  async (ctx) => {
+    ctx.user.history = [];
+    ctx.user.xp = 0;
+    ctx.user.level = 'Beginner';
+    await ctx.user.save();
+    ctx.reply('  Memory wiped. Brand new start !');
 });
 
 // --- PROCESSAMENTO DE MENSAGENS ---
 
 //Função central de resposta (usada para texto e áudio)
 async function processInteraction(ctx, inputText) {
+if (!ctx.user) return;
+
+try{
     //Mostrar que está "escrevendo..."
     await ctx.sendChatAction('typing');
 
@@ -63,15 +94,28 @@ async function processInteraction(ctx, inputText) {
     let responseText = await aiService.getChatResponse(ctx.user, inputText);
 
     // 3. Sistema de XP
-    if (responseText.includes('[XP]')) {
+    if (ctx.user.mode === 'chat') {
+        if (responseText.includes('[XP]')) {
         ctx.user.xp += 10;
         responseText = responseText.replace('[XP]', '🌟 (+10 XP)');
-        
-        // Level Up simples
-        if (ctx.user.xp > 100 && ctx.user.level === 'Beginner') {
-            ctx.user.level = 'Intermediate';
-            responseText += "\n\n🎉 **Level Up!** You are now Intermediate!";
-        }
+        } else {ctx.user.xp += 1;}// 1 XP por esforço
+    }
+    // Level Up simples
+    if (ctx.user.xp > 200 && ctx.user.level === 'Beginner') {
+        ctx.user.level = 'Intermediate';
+        responseText += "\n\n🎉 **Level Up!** You are now Intermediate!";
+    } else if (ctx.user.xp > 400 && ctx.user.level === 'Intermediate') {
+        ctx.user.level = 'Advanced';
+        responseText += "\n\n🎉 **Level Up!** You are now Advanced!";
+    } else if (ctx.user.xp > 600 && ctx.user.level === 'Advanced') {
+        ctx.user.level = 'Expert';
+        responseText += "\n\n🎉 **Level Up!** You are now Expert!";
+    } else if (ctx.user.xp > 800 && ctx.user.level === 'Expert') {
+        ctx.user.level = 'Master';
+        responseText += "\n\n🎉 **Level Up!** You are now Master!";
+    } else if (ctx.user.xp > 1000 && ctx.user.level === 'Master') {
+        ctx.user.level = 'Legend';
+        responseText += "\n\n🎉 **Level Up!** You are now Legend!";
     } else {
         ctx.user.xp += 1; // 1 XP por esforço
     }
@@ -85,13 +129,13 @@ async function processInteraction(ctx, inputText) {
     await ctx.reply(responseText);
 
     // 6. Responder áudio (Voice)
-    try {
-        //converte texto em áudio
-        const audioBuffer = await aiService.textToSpeech(responseText);
-        if (audioBuffer) {
-            await ctx.sendChatAction('record_voice');
-            await ctx.replyWithVoice({ source: audioBuffer });
-        }
+
+    //converte texto em áudio
+    const audioBuffer = await aiService.textToSpeech(responseText);
+    if (audioBuffer) {
+        await ctx.sendChatAction('record_voice');
+        await ctx.replyWithVoice({ source: audioBuffer });
+    }
     } catch (e) {
         console.error("Erro ao enviar áudio:", e);
     }
@@ -140,7 +184,7 @@ bot.on(message('voice'), async (ctx) => {
 
     } catch (e) {
         console.error("Erro no processamento de voz:", e);
-        ctx.reply("❌ Sorry, I couldn't hear you properly.");
+        
     }
 });
 
